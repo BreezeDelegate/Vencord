@@ -10,6 +10,10 @@ on:
             - scripts/build/**
             - package.json
             - pnpm-lock.yaml
+
+permissions:
+    contents: write
+
 env:
     FORCE_COLOR: true
 
@@ -50,8 +54,11 @@ jobs:
                   echo "release_tag=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
             - name: Upload DevBuild as release
-              if: github.repository == 'Vendicated/Vencord'
+              if: github.repository == 'BreezeDelegate/Vencord'
               run: |
+                  if ! gh release view devbuild >/dev/null 2>&1; then
+                      gh release create devbuild --title "DevBuild $RELEASE_TAG" --notes "Automated Vencord devbuild with BreezeDelegate plugins."
+                  fi
                   gh release upload devbuild --clobber dist/*
                   gh release edit devbuild --title "DevBuild $RELEASE_TAG"
               env:
