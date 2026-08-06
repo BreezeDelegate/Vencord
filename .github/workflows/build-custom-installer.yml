@@ -73,18 +73,16 @@ jobs:
               run: |
                   export GOROOT=/mingw64/lib/go
                   export GOPATH=/mingw64
-                  TAG="fork-$(git rev-parse --short HEAD)"
                   go-winres make --product-version "git-tag"
-                  CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags static -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=$TAG'" -o BreezeVencordInstaller.exe
+                  CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags static -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=devbuild'" -o BreezeVencordInstaller.exe
 
             - name: Build command-line installer
               shell: msys2 {0}
               working-directory: installer
               run: |
-                  export GOROOT=/ming64/lib/go
+                  export GOROOT=/mingw64/lib/go
                   export GOPATH=/mingw64
-                  TAG="fork-$(git rev-parse --short HEAD)"
-                  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -v -tags "static cli" -ldflags "-s -w -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=$TAG'" -o BreezeVencordInstallerCli.exe
+                  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -v -tags "static cli" -ldflags "-s -w -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=devbuild'" -o BreezeVencordInstallerCli.exe
 
             - name: Verify executables
               shell: pwsh
