@@ -82,7 +82,7 @@ jobs:
               run: |
                   export GOROOT=/mingw64/lib/go
                   export GOPATH=/mingw64
-                  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -v -tags "static cli" -ldflags "-s -w -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=devbuild'" -o BreezeVencordInstallerCli.exe
+                  CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags "static cli" -ldflags "-s -w -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=devbuild'" -o BreezeVencordInstallerCli.exe
 
             - name: Verify executables
               shell: pwsh
