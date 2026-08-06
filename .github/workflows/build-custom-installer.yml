@@ -1,0 +1,121 @@
+name: Build Custom Vencord Installer
+
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - main
+        paths:
+            - .github/workflows/build-custom-installer.yml
+    workflow_run:
+        workflows:
+            - Build DevBuild
+        types:
+            - completed
+
+permissions:
+    contents: write
+
+env:
+    FORCE_COLOR: true
+    CUSTOM_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/latest
+
+jobs:
+    BuildInstaller:
+        if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+        runs-on: windows-latest
+
+        steps:
+            - name: Checkout Vencord Installer source
+              shell: pwsh
+              run: git clone --depth 1 https://github.com/Vencord/Installer.git installer
+
+            - name: Point installer to BreezeDelegate/Vencord
+              shell: pwsh
+              working-directory: installer
+              run: |
+                  $ErrorActionPreference = "Stop"
+                  $path = Join-Path $PWD "constants.go"
+                  $content = Get-Content $path -Raw
+                  $content = $content.Replace('const ReleaseUrl = "https://api.github.com/repos/Vendicated/Vencord/releases/latest"', 'const ReleaseUrl = "${{ env.CUSTOM_RELEASE_API }}"')
+                  $content = $content.Replace('const ReleaseUrlFallback = "https://vencord.dev/releases/vencord"', 'const ReleaseUrlFallback = "${{ env.CUSTOM_RELEASE_API }}"')
+                  $content = $content.Replace('const InstallerReleaseUrl = "https://api.github.com/repos/Vencord/Installer/releases/latest"', 'const InstallerReleaseUrl = "${{ env.CUSTOM_RELEASE_API }}"')
+                  $content = $content.Replace('const InstallerReleaseUrlFallback = "https://vencord.dev/releases/installer"', 'const InstallerReleaseUrlFallback = "${{ env.CUSTOM_RELEASE_API }}"')
+                  $content = $content.Replace('var UserAgent = "VencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/Vencord/Installer)"', 'var UserAgent = "BreezeVencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/BreezeDelegate/Vencord)"')
+                  Set-Content $path $content -Encoding UTF8
+
+                  if ($content -notmatch [regex]::Escape('${{ env.CUSTOM_RELEASE_API }}')) {
+                      throw "Failed to patch installer release URLs"
+                  }
+
+            - name: Setup MSYS2 build environment
+              uses: msys2/setup-msys2@v2
+              with:
+                  update: true
+                  install: >-
+                      git
+                      mingw-w64-x86_64-gcc
+                      mingw-w64-x86_64-SDL2
+                      mingw-w64-x86_64-go
+
+            - name: Install Go dependencies and Windows resources tool
+              shell: msys2 {0}
+              working-directory: installer
+              run: |
+                  export GOROOT=/mingw64/lib/go
+                  export GOPATH=/mingw64
+                  go get -v
+                  go install github.com/tc-hib/go-winres@latest
+
+            - name: Build graphical installer
+              shell: msys2 {0}
+              working-directory: installer
+              run: |
+                  export GOROOT=/mingw64/lib/go
+                  export GOPATH=/mingw64
+                  TAG="fork-$(git rev-parse --short HEAD)"
+                  go-winres make --product-version "git-tag"
+                  CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags static -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=$TAG'" -o BreezeVencordInstaller.exe
+
+            - name: Build command-line installer
+              shell: msys2 {0}
+              working-directory: installer
+              run: |
+                  export GOROOT=/ming64/lib/go
+                  export GOPATH=/mingw64
+                  TAG="fork-$(git rev-parse --short HEAD)"
+                  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -v -tags "static cli" -ldflags "-s -w -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=$TAG'" -o BreezeVencordInstallerCli.exe
+
+            - name: Verify executables
+              shell: pwsh
+              working-directory: installer
+              run: |
+                  $ErrorActionPreference = "Stop"
+                  foreach ($file in @("BreezeVencordInstaller.exe", "BreezeVencordInstallerCli.exe")) {
+                      if (-not (Test-Path $file -PathType Leaf)) { throw "Missing executable: $file" }
+                      if ((Get-Item $file).Length -lt 500000) { throw "Executable looks incomplete: $file" }
+                  }
+                  .\BreezeVencordInstallerCli.exe --version
+
+            - name: Publish installers to devbuild release
+              shell: pwsh
+              working-directory: installer
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  $ErrorActionPreference = "Stop"
+                  gh release view devbuild --repo BreezeDelegate/Vencord *> $null
+                  if ($LASTEXITCODE -ne 0) {
+                      gh release create devbuild --repo BreezeDelegate/Vencord --title "Breeze Vencord DevBuild" --notes "Automated Vencord fork build and installer." --latest
+                      if ($LASTEXITCODE -ne 0) { throw "Unable to create devbuild release" }
+                  }
+
+                  gh release upload devbuild `
+                      BreezeVencordInstaller.exe `
+                      BreezeVencordInstallerCli.exe `
+                      --repo BreezeDelegate/Vencord `
+                      --clobber
+                  if ($LASTEXITCODE -ne 0) { throw "Unable to upload installer executables" }
+
+                  gh release edit devbuild --repo BreezeDelegate/Vencord --latest
+                  if ($LASTEXITCODE -ne 0) { throw "Unable to mark devbuild as latest" }
