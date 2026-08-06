@@ -13,6 +13,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_COLOR: true
+
 concurrency:
   group: voice-message-booster-release
   cancel-in-progress: true
@@ -24,19 +27,20 @@ jobs:
 
     steps:
       - name: Checkout fork
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup pnpm from package.json
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: 24
+          cache: pnpm
 
-      - name: Enable repository pnpm version
+      - name: Show tool versions
         shell: pwsh
         run: |
-          corepack enable
-          $package = Get-Content package.json -Raw | ConvertFrom-Json
-          corepack prepare $package.packageManager --activate
           node --version
           pnpm --version
 
@@ -44,9 +48,22 @@ jobs:
         shell: pwsh
         run: pnpm install --frozen-lockfile
 
-      - name: Build Vencord with updater disabled
+      - name: Build Vencord for Windows
         shell: pwsh
         run: pnpm build --disable-updater
+
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $required = @("patcher.js", "preload.js", "renderer.js", "renderer.css")
+          foreach ($file in $required) {
+            $path = Join-Path $PWD ("dist\" + $file)
+            if (-not (Test-Path $path -PathType Leaf)) {
+              throw "Required build file is missing: $path"
+            }
+            Write-Host "Found $path"
+          }
 
       - name: Package installable ZIP
         id: package
@@ -62,9 +79,7 @@ jobs:
 
           $distFiles = @("patcher.js", "preload.js", "renderer.js", "renderer.css")
           foreach ($file in $distFiles) {
-            $source = Join-Path $PWD ("dist\" + $file)
-            if (-not (Test-Path $source)) { throw "Build file missing: $source" }
-            Copy-Item $source -Destination $packageDist -Force
+            Copy-Item (Join-Path $PWD ("dist\" + $file)) -Destination $packageDist -Force
           }
 
           Copy-Item "release\voice-message-booster\Installer.cmd" -Destination $packageRoot -Force
@@ -131,12 +146,6 @@ jobs:
           $ErrorActionPreference = "Stop"
           $tag = "voice-message-booster-${{ steps.package.outputs.short_sha }}"
 
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release delete $tag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
-            if ($LASTEXITCODE -ne 0) { throw "Unable to replace existing release $tag" }
-          }
-
           gh release create $tag `
             "${{ steps.package.outputs.zip_path }}#VoiceMessageBooster Windows installer" `
             "${{ steps.package.outputs.checksum_path }}#SHA-256 checksum" `
@@ -145,3 +154,7 @@ jobs:
             --title "VoiceMessageBooster ${{ steps.package.outputs.short_sha }}" `
             --notes-file "release-output\release-notes.md" `
             --latest
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub release creation failed with exit code $LASTEXITCODE"
+          }
