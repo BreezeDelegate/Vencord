@@ -1,12 +1,13 @@
 name: Build DevBuild
+
 on:
+    workflow_dispatch:
     push:
         branches:
             - main
         paths:
             - .github/workflows/build.yml
             - src/**
-            - browser/**
             - scripts/build/**
             - package.json
             - pnpm-lock.yaml
@@ -16,67 +17,110 @@ permissions:
 
 env:
     FORCE_COLOR: true
+    VENCORD_REMOTE: BreezeDelegate/Vencord
+
+concurrency:
+    group: breeze-vencord-devbuild
+    cancel-in-progress: true
 
 jobs:
     Build:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v7
+            - name: Checkout fork
+              uses: actions/checkout@v7
 
-            - uses: pnpm/action-setup@v6
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v6
 
-            - name: Use Node.js 24
+            - name: Setup Node.js 24
               uses: actions/setup-node@v6
               with:
                   node-version: 24
-                  cache: "pnpm"
+                  cache: pnpm
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
-            - name: Build web
-              run: pnpm buildWebStandalone
+            - name: Build desktop fork
+              run: pnpm build --standalone --disable-updater
 
-            - name: Build Vencord
-              run: pnpm build --standalone
-
-            - name: Generate official plugin list
-              run: pnpm generatePluginJson dist/plugins.json dist/plugin-readmes.json
-
-            - name: Verify custom plugin is bundled
+            - name: Verify VoiceMessageBooster and runtime files
               shell: bash
               run: |
                   set -euo pipefail
-                  test -f src/userplugins/voiceMessageBooster/index.ts
-                  test -s dist/renderer.js
+
+                  test -s src/userplugins/voiceMessageBooster/index.ts
+
+                  required=(patcher.js preload.js renderer.js renderer.css)
+                  for file in "${required[@]}"; do
+                      test -s "dist/$file"
+                      echo "Verified dist/$file"
+                  done
+
                   grep -Fq 'VoiceMessageBooster' dist/renderer.js
-                  echo 'VoiceMessageBooster is present in dist/renderer.js'
+                  grep -Fq 'Volume multiplier for voice messages' dist/renderer.js
+                  grep -Fq 'compatibilityMode' dist/renderer.js
+                  grep -Fq 'BreezeDelegate/Vencord' dist/renderer.js
 
-            - name: Clean up obsolete files
-              run: |
-                  rm -rf dist/*-unpacked dist/vendor Vencord.user.css vencordDesktopRenderer.css vencordDesktopRenderer.css.map
+                  if ! head -n 5 dist/patcher.js | grep -Fq '// Updater Disabled: true'; then
+                      echo 'The built-in Vencord updater is not disabled.' >&2
+                      exit 1
+                  fi
 
-            - name: Get release hash
-              run: echo "release_tag=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+                  echo 'Verified: VoiceMessageBooster is bundled with its settings.'
+                  echo 'Verified: this build identifies BreezeDelegate/Vencord as its source.'
+                  echo 'Verified: the official updater cannot overwrite the fork.'
 
-            - name: Upload verified DevBuild release
+            - name: Get build hash
+              shell: bash
+              run: echo "BUILD_HASH=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+            - name: Publish clean devbuild runtime release
               if: github.repository == 'BreezeDelegate/Vencord'
+              shell: bash
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  RELEASE_TAG: ${{ env.release_tag }}
+                  GH_TOKEN: ${{ github.token }}
               run: |
                   set -euo pipefail
-                  if ! gh release view devbuild >/dev/null 2>&1; then
+
+                  if ! gh release view devbuild --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
                       gh release create devbuild \
+                          --repo "$GITHUB_REPOSITORY" \
                           --target "$GITHUB_SHA" \
-                          --title "DevBuild $RELEASE_TAG" \
-                          --notes "Verified Vencord devbuild with BreezeDelegate custom plugins." \
-                          --latest
+                          --title "Breeze DevBuild $BUILD_HASH" \
+                          --notes "Runtime files consumed by BreezeVencordInstaller.exe. Do not delete these four assets." \
+                          --prerelease
                   fi
-                  gh release upload devbuild --clobber dist/*
-                  gh release edit devbuild \
-                      --target "$GITHUB_SHA" \
-                      --title "DevBuild $RELEASE_TAG" \
-                      --notes "Verified Vencord devbuild with VoiceMessageBooster bundled." \
-                      --latest
+
+                  while IFS= read -r asset; do
+                      [ -z "$asset" ] || gh release delete-asset devbuild "$asset" \
+                          --repo "$GITHUB_REPOSITORY" \
+                          --yes
+                  done < <(gh release view devbuild \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --json assets \
+                      --jq '.assets[].name')
+
+                  gh release upload devbuild \
+                      dist/patcher.js \
+                      dist/preload.js \
+                      dist/renderer.js \
+                      dist/renderer.css \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --clobber
+
+                  RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/devbuild" --jq '.id')
+                  gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+                      -f name="Breeze DevBuild $BUILD_HASH" \
+                      -f body="Runtime files consumed by BreezeVencordInstaller.exe. VoiceMessageBooster verified in renderer.js. Do not delete these four assets." \
+                      -F prerelease=true \
+                      -f make_latest=false >/dev/null
+
+                  ASSET_COUNT=$(gh release view devbuild \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --json assets \
+                      --jq '.assets | length')
+                  test "$ASSET_COUNT" -eq 4
+                  echo "Published exactly four required runtime assets."
