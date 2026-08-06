@@ -52,7 +52,7 @@ jobs:
                   $selfUpdaterPath = Join-Path $PWD "self_updater.go"
                   $selfUpdater = Get-Content $selfUpdaterPath -Raw
                   $selfUpdater = $selfUpdater.Replace('const BaseUrl = "https://github.com/Vencord/Installer/releases/latest/download/"', 'const BaseUrl = "${{ env.CUSTOM_RELEASE_DOWNLOAD }}"')
-                  $selfUpdater = $selfUpdater.Replace('"VencordInstallerCli.exe", "VencordInstaller.exe"', '"BreezeVencordInstallerCli.exe", "BreezeVencordInstaller.exe"')
+                  $selfUpdater = $selfUpdater.Replace('"VencordInstallerCli.exe", "VencordInstaller.exe"', '"BreezeVencordInstaller.exe", "BreezeVencordInstaller.exe"')
                   Set-Content $selfUpdaterPath $selfUpdater -Encoding UTF8
 
                   if ($constants -notmatch [regex]::Escape('${{ env.CUSTOM_RELEASE_API }}')) {
@@ -62,7 +62,7 @@ jobs:
                       throw "The installer self-update URL was not patched"
                   }
 
-            - name: Install MSYS2 without external GitHub actions
+            - name: Install MSYS2
               shell: pwsh
               run: |
                   $ErrorActionPreference = "Stop"
@@ -76,7 +76,7 @@ jobs:
                   "MSYS2_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
                   Write-Host "MSYS2 root: $root"
 
-            - name: Install MinGW toolchain and build both installers
+            - name: Build graphical installer
               shell: pwsh
               working-directory: installer
               run: |
@@ -103,28 +103,24 @@ jobs:
                   go install github.com/tc-hib/go-winres@latest
                   go-winres make --product-version "git-tag"
                   CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags static -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=devbuild'" -o BreezeVencordInstaller.exe
-                  CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags "static cli" -ldflags "-s -w -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=devbuild'" -o BreezeVencordInstallerCli.exe
                   '@
                   $script = $script.Replace('__INSTALLER_PATH__', $windowsPath)
 
                   & $bash -lc $script
                   if ($LASTEXITCODE -ne 0) { throw "MSYS2 installer compilation failed with exit code $LASTEXITCODE" }
 
-            - name: Verify compiled executables
+            - name: Verify graphical installer
               shell: pwsh
               working-directory: installer
               run: |
                   $ErrorActionPreference = "Stop"
-                  foreach ($file in @("BreezeVencordInstaller.exe", "BreezeVencordInstallerCli.exe")) {
-                      if (-not (Test-Path $file -PathType Leaf)) { throw "Missing executable: $file" }
-                      $size = (Get-Item $file).Length
-                      if ($size -lt 500000) { throw "Executable looks incomplete: $file ($size bytes)" }
-                      Write-Host "${file}: $size bytes"
-                  }
-                  .\BreezeVencordInstallerCli.exe --version
-                  if ($LASTEXITCODE -ne 0) { throw "The compiled CLI failed its version check" }
+                  $file = "BreezeVencordInstaller.exe"
+                  if (-not (Test-Path $file -PathType Leaf)) { throw "Missing executable: $file" }
+                  $size = (Get-Item $file).Length
+                  if ($size -lt 500000) { throw "Executable looks incomplete: $file ($size bytes)" }
+                  Write-Host "${file}: $size bytes"
 
-            - name: Publish installers to devbuild release
+            - name: Publish installer to devbuild release
               shell: pwsh
               working-directory: installer
               env:
@@ -144,10 +140,9 @@ jobs:
 
                   gh release upload devbuild `
                       BreezeVencordInstaller.exe `
-                      BreezeVencordInstallerCli.exe `
                       --repo BreezeDelegate/Vencord `
                       --clobber
-                  if ($LASTEXITCODE -ne 0) { throw "Unable to upload installer executables" }
+                  if ($LASTEXITCODE -ne 0) { throw "Unable to upload the installer executable" }
 
                   gh release edit devbuild --repo BreezeDelegate/Vencord --latest
                   if ($LASTEXITCODE -ne 0) { throw "Unable to mark devbuild as the latest release" }
