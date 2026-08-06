@@ -7,23 +7,22 @@ on:
             - main
         paths:
             - .github/workflows/build-custom-installer.yml
-    workflow_run:
-        workflows:
-            - Build DevBuild
-        types:
-            - completed
 
 permissions:
     contents: write
 
+concurrency:
+    group: breeze-vencord-installer
+    cancel-in-progress: true
+
 env:
     FORCE_COLOR: true
-    CUSTOM_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/latest
-    CUSTOM_RELEASE_DOWNLOAD: https://github.com/BreezeDelegate/Vencord/releases/latest/download/
+    BUILD_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/tags/devbuild
+    INSTALLER_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/tags/installer
+    INSTALLER_DOWNLOAD_BASE: https://github.com/BreezeDelegate/Vencord/releases/download/installer/
 
 jobs:
     BuildInstaller:
-        if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
         runs-on: windows-latest
 
         steps:
@@ -34,7 +33,7 @@ jobs:
                   git clone --depth 1 https://github.com/Vencord/Installer.git installer
                   if ($LASTEXITCODE -ne 0) { throw "Unable to clone Vencord Installer" }
 
-            - name: Point every update URL to BreezeDelegate/Vencord
+            - name: Point installer exclusively to BreezeDelegate releases
               shell: pwsh
               working-directory: installer
               run: |
@@ -42,24 +41,90 @@ jobs:
 
                   $constantsPath = Join-Path $PWD "constants.go"
                   $constants = Get-Content $constantsPath -Raw
-                  $constants = $constants.Replace('const ReleaseUrl = "https://api.github.com/repos/Vendicated/Vencord/releases/latest"', 'const ReleaseUrl = "${{ env.CUSTOM_RELEASE_API }}"')
-                  $constants = $constants.Replace('const ReleaseUrlFallback = "https://vencord.dev/releases/vencord"', 'const ReleaseUrlFallback = "${{ env.CUSTOM_RELEASE_API }}"')
-                  $constants = $constants.Replace('const InstallerReleaseUrl = "https://api.github.com/repos/Vencord/Installer/releases/latest"', 'const InstallerReleaseUrl = "${{ env.CUSTOM_RELEASE_API }}"')
-                  $constants = $constants.Replace('const InstallerReleaseUrlFallback = "https://vencord.dev/releases/installer"', 'const InstallerReleaseUrlFallback = "${{ env.CUSTOM_RELEASE_API }}"')
-                  $constants = $constants.Replace('var UserAgent = "VencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/Vencord/Installer)"', 'var UserAgent = "BreezeVencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/BreezeDelegate/Vencord)"')
+                  $constants = $constants.Replace(
+                      'const ReleaseUrl = "https://api.github.com/repos/Vendicated/Vencord/releases/latest"',
+                      'const ReleaseUrl = "${{ env.BUILD_RELEASE_API }}"'
+                  )
+                  $constants = $constants.Replace(
+                      'const ReleaseUrlFallback = "https://vencord.dev/releases/vencord"',
+                      'const ReleaseUrlFallback = "${{ env.BUILD_RELEASE_API }}"'
+                  )
+                  $constants = $constants.Replace(
+                      'const InstallerReleaseUrl = "https://api.github.com/repos/Vencord/Installer/releases/latest"',
+                      'const InstallerReleaseUrl = "${{ env.INSTALLER_RELEASE_API }}"'
+                  )
+                  $constants = $constants.Replace(
+                      'const InstallerReleaseUrlFallback = "https://vencord.dev/releases/installer"',
+                      'const InstallerReleaseUrlFallback = "${{ env.INSTALLER_RELEASE_API }}"'
+                  )
+                  $constants = $constants.Replace(
+                      'var UserAgent = "VencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/Vencord/Installer)"',
+                      'var UserAgent = "BreezeVencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/BreezeDelegate/Vencord)"'
+                  )
                   Set-Content $constantsPath $constants -Encoding UTF8
 
                   $selfUpdaterPath = Join-Path $PWD "self_updater.go"
                   $selfUpdater = Get-Content $selfUpdaterPath -Raw
-                  $selfUpdater = $selfUpdater.Replace('const BaseUrl = "https://github.com/Vencord/Installer/releases/latest/download/"', 'const BaseUrl = "${{ env.CUSTOM_RELEASE_DOWNLOAD }}"')
-                  $selfUpdater = $selfUpdater.Replace('"VencordInstallerCli.exe", "VencordInstaller.exe"', '"BreezeVencordInstaller.exe", "BreezeVencordInstaller.exe"')
+                  $selfUpdater = $selfUpdater.Replace(
+                      'const BaseUrl = "https://github.com/Vencord/Installer/releases/latest/download/"',
+                      'const BaseUrl = "${{ env.INSTALLER_DOWNLOAD_BASE }}"'
+                  )
+                  $selfUpdater = $selfUpdater.Replace(
+                      '"VencordInstallerCli.exe", "VencordInstaller.exe"',
+                      '"BreezeVencordInstaller.exe", "BreezeVencordInstaller.exe"'
+                  )
                   Set-Content $selfUpdaterPath $selfUpdater -Encoding UTF8
 
-                  if ($constants -notmatch [regex]::Escape('${{ env.CUSTOM_RELEASE_API }}')) {
-                      throw "The Vencord release API was not patched"
+                  $downloaderPath = Join-Path $PWD "github_downloader.go"
+                  $downloader = Get-Content $downloaderPath -Raw
+                  $pattern = 'func installLatestBuilds\(\) \(retErr error\) \{\r?\n\tLog\.Debug\("Installing latest builds\.\.\."\)\r?\n'
+                  $replacement = @'
+                  func installLatestBuilds() (retErr error) {
+                      Log.Debug("Installing latest builds...")
+
+                      requiredAssets := map[string]bool{
+                          "patcher.js": false,
+                          "preload.js": false,
+                          "renderer.js": false,
+                          "renderer.css": false,
+                      }
+                      for _, asset := range ReleaseData.Assets {
+                          if _, required := requiredAssets[asset.Name]; required {
+                              requiredAssets[asset.Name] = true
+                          }
+                      }
+                      for name, present := range requiredAssets {
+                          if !present {
+                              return fmt.Errorf("Breeze Vencord build release is incomplete: missing %s", name)
+                          }
+                      }
+                  '@
+                  $patchedDownloader = [regex]::Replace(
+                      $downloader,
+                      $pattern,
+                      ($replacement.TrimStart() + "`n"),
+                      1
+                  )
+                  if ($patchedDownloader -eq $downloader) {
+                      throw "Unable to add runtime asset validation to github_downloader.go"
                   }
-                  if ($selfUpdater -notmatch [regex]::Escape('${{ env.CUSTOM_RELEASE_DOWNLOAD }}')) {
-                      throw "The installer self-update URL was not patched"
+                  Set-Content $downloaderPath $patchedDownloader -Encoding UTF8
+
+                  $constantsCheck = Get-Content $constantsPath -Raw
+                  $selfUpdaterCheck = Get-Content $selfUpdaterPath -Raw
+                  $downloaderCheck = Get-Content $downloaderPath -Raw
+
+                  if ($constantsCheck -notmatch [regex]::Escape('${{ env.BUILD_RELEASE_API }}')) {
+                      throw "The Vencord build release API was not patched"
+                  }
+                  if ($constantsCheck -notmatch [regex]::Escape('${{ env.INSTALLER_RELEASE_API }}')) {
+                      throw "The installer release API was not patched"
+                  }
+                  if ($selfUpdaterCheck -notmatch [regex]::Escape('${{ env.INSTALLER_DOWNLOAD_BASE }}')) {
+                      throw "The installer download URL was not patched"
+                  }
+                  if ($downloaderCheck -notmatch 'Breeze Vencord build release is incomplete') {
+                      throw "The runtime asset guard was not patched"
                   }
 
             - name: Install MSYS2
@@ -70,11 +135,15 @@ jobs:
                   if ($LASTEXITCODE -ne 0) { throw "Chocolatey could not install MSYS2" }
 
                   $roots = @("C:\tools\msys64", "C:\msys64")
-                  $root = $roots | Where-Object { Test-Path (Join-Path $_ "usr\bin\bash.exe") } | Select-Object -First 1
+                  $root = $roots |
+                      Where-Object { Test-Path (Join-Path $_ "usr\bin\bash.exe") } |
+                      Select-Object -First 1
                   if (-not $root) { throw "MSYS2 bash.exe was not found after installation" }
 
-                  "MSYS2_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-                  Write-Host "MSYS2 root: $root"
+                  "MSYS2_ROOT=$root" | Out-File \
+                      -FilePath $env:GITHUB_ENV \
+                      -Encoding utf8 \
+                      -Append
 
             - name: Build graphical installer
               shell: pwsh
@@ -97,17 +166,17 @@ jobs:
                   export PATH=/mingw64/bin:/usr/bin:$PATH
                   export GOROOT=/mingw64/lib/go
                   export GOPATH=/mingw64
-                  go version
-                  gcc --version
                   go get -v
                   go install github.com/tc-hib/go-winres@latest
                   go-winres make --product-version "git-tag"
-                  CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags static -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=devbuild'" -o BreezeVencordInstaller.exe
+                  CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags static -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=installer'" -o BreezeVencordInstaller.exe
                   '@
                   $script = $script.Replace('__INSTALLER_PATH__', $windowsPath)
 
                   & $bash -lc $script
-                  if ($LASTEXITCODE -ne 0) { throw "MSYS2 installer compilation failed with exit code $LASTEXITCODE" }
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Installer compilation failed with exit code $LASTEXITCODE"
+                  }
 
             - name: Verify graphical installer
               shell: pwsh
@@ -115,34 +184,81 @@ jobs:
               run: |
                   $ErrorActionPreference = "Stop"
                   $file = "BreezeVencordInstaller.exe"
-                  if (-not (Test-Path $file -PathType Leaf)) { throw "Missing executable: $file" }
+                  if (-not (Test-Path $file -PathType Leaf)) {
+                      throw "Missing executable: $file"
+                  }
                   $size = (Get-Item $file).Length
-                  if ($size -lt 500000) { throw "Executable looks incomplete: $file ($size bytes)" }
+                  if ($size -lt 500000) {
+                      throw "Executable looks incomplete: $file ($size bytes)"
+                  }
                   Write-Host "${file}: $size bytes"
 
-            - name: Publish installer to devbuild release
+            - name: Publish clean installer release
               shell: pwsh
               working-directory: installer
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   $ErrorActionPreference = "Stop"
+                  $repo = "BreezeDelegate/Vencord"
 
-                  gh release view devbuild --repo BreezeDelegate/Vencord *> $null
+                  gh release view installer --repo $repo *> $null
                   if ($LASTEXITCODE -ne 0) {
-                      gh release create devbuild `
-                          --repo BreezeDelegate/Vencord `
-                          --title "Breeze Vencord DevBuild" `
-                          --notes "Automated Vencord fork build and custom installer." `
+                      gh release create installer `
+                          --repo $repo `
+                          --target $env:GITHUB_SHA `
+                          --title "Breeze Vencord Installer" `
+                          --notes "Installer for the BreezeDelegate/Vencord fork. It downloads the verified devbuild release." `
                           --latest
-                      if ($LASTEXITCODE -ne 0) { throw "Unable to create the devbuild release" }
+                      if ($LASTEXITCODE -ne 0) {
+                          throw "Unable to create the installer release"
+                      }
                   }
 
-                  gh release upload devbuild `
-                      BreezeVencordInstaller.exe `
-                      --repo BreezeDelegate/Vencord `
-                      --clobber
-                  if ($LASTEXITCODE -ne 0) { throw "Unable to upload the installer executable" }
+                  $assets = gh release view installer `
+                      --repo $repo `
+                      --json assets `
+                      --jq '.assets[].name'
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Unable to list existing installer assets"
+                  }
+                  foreach ($asset in $assets) {
+                      if ($asset) {
+                          gh release delete-asset installer $asset `
+                              --repo $repo `
+                              --yes
+                          if ($LASTEXITCODE -ne 0) {
+                              throw "Unable to delete stale installer asset: $asset"
+                          }
+                      }
+                  }
 
-                  gh release edit devbuild --repo BreezeDelegate/Vencord --latest
-                  if ($LASTEXITCODE -ne 0) { throw "Unable to mark devbuild as the latest release" }
+                  gh release upload installer `
+                      BreezeVencordInstaller.exe `
+                      --repo $repo `
+                      --clobber
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Unable to upload BreezeVencordInstaller.exe"
+                  }
+
+                  $releaseId = gh api "repos/$repo/releases/tags/installer" --jq '.id'
+                  if ($LASTEXITCODE -ne 0 -or -not $releaseId) {
+                      throw "Unable to resolve the installer release ID"
+                  }
+
+                  gh api --method PATCH "repos/$repo/releases/$releaseId" `
+                      -f name="Breeze Vencord Installer" `
+                      -f body="Installer for BreezeDelegate/Vencord. The runtime is downloaded from the verified devbuild release." `
+                      -F prerelease=false `
+                      -f make_latest=true *> $null
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Unable to mark the installer release as latest"
+                  }
+
+                  $assetCount = gh release view installer `
+                      --repo $repo `
+                      --json assets `
+                      --jq '.assets | length'
+                  if ([int]$assetCount -ne 1) {
+                      throw "Installer release must contain exactly one asset, found $assetCount"
+                  }
