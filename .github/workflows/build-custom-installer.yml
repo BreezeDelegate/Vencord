@@ -104,7 +104,8 @@ jobs:
                   go-winres make --product-version "git-tag"
                   CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags static -ldflags "-s -w -H=windowsgui -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=devbuild'" -o BreezeVencordInstaller.exe
                   CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -v -tags "static cli" -ldflags "-s -w -extldflags=-static -X 'vencordinstaller/buildinfo.InstallerGitHash=$(git rev-parse --short HEAD)' -X 'vencordinstaller/buildinfo.InstallerTag=devbuild'" -o BreezeVencordInstallerCli.exe
-                  '@.Replace('__INSTALLER_PATH__', $windowsPath)
+                  '@
+                  $script = $script.Replace('__INSTALLER_PATH__', $windowsPath)
 
                   & $bash -lc $script
                   if ($LASTEXITCODE -ne 0) { throw "MSYS2 installer compilation failed with exit code $LASTEXITCODE" }
@@ -118,7 +119,7 @@ jobs:
                       if (-not (Test-Path $file -PathType Leaf)) { throw "Missing executable: $file" }
                       $size = (Get-Item $file).Length
                       if ($size -lt 500000) { throw "Executable looks incomplete: $file ($size bytes)" }
-                      Write-Host "$file: $size bytes"
+                      Write-Host "${file}: $size bytes"
                   }
                   .\BreezeVencordInstallerCli.exe --version
                   if ($LASTEXITCODE -ne 0) { throw "The compiled CLI failed its version check" }
