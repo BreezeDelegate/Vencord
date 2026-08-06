@@ -7,6 +7,11 @@ on:
             - main
         paths:
             - .github/workflows/build-custom-installer.yml
+    workflow_run:
+        workflows:
+            - Build DevBuild
+        types:
+            - completed
 
 permissions:
     contents: write
@@ -17,12 +22,13 @@ concurrency:
 
 env:
     FORCE_COLOR: true
-    BUILD_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/tags/devbuild
+    BUILD_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/tags/breeze-runtime
     INSTALLER_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/tags/installer
     INSTALLER_DOWNLOAD_BASE: https://github.com/BreezeDelegate/Vencord/releases/download/installer/
 
 jobs:
     BuildInstaller:
+        if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
         runs-on: windows-latest
 
         steps:
@@ -115,7 +121,7 @@ jobs:
                   $downloaderCheck = Get-Content $downloaderPath -Raw
 
                   if ($constantsCheck -notmatch [regex]::Escape('${{ env.BUILD_RELEASE_API }}')) {
-                      throw "The Vencord build release API was not patched"
+                      throw "The Breeze runtime API was not patched"
                   }
                   if ($constantsCheck -notmatch [regex]::Escape('${{ env.INSTALLER_RELEASE_API }}')) {
                       throw "The installer release API was not patched"
@@ -140,10 +146,7 @@ jobs:
                       Select-Object -First 1
                   if (-not $root) { throw "MSYS2 bash.exe was not found after installation" }
 
-                  "MSYS2_ROOT=$root" | Out-File \
-                      -FilePath $env:GITHUB_ENV \
-                      -Encoding utf8 \
-                      -Append
+                  "MSYS2_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
             - name: Build graphical installer
               shell: pwsh
@@ -208,7 +211,7 @@ jobs:
                           --repo $repo `
                           --target $env:GITHUB_SHA `
                           --title "Breeze Vencord Installer" `
-                          --notes "Installer for the BreezeDelegate/Vencord fork. It downloads the verified devbuild release." `
+                          --notes "Installer for BreezeDelegate/Vencord. It downloads the verified breeze-runtime release." `
                           --latest
                       if ($LASTEXITCODE -ne 0) {
                           throw "Unable to create the installer release"
@@ -248,7 +251,7 @@ jobs:
 
                   gh api --method PATCH "repos/$repo/releases/$releaseId" `
                       -f name="Breeze Vencord Installer" `
-                      -f body="Installer for BreezeDelegate/Vencord. The runtime is downloaded from the verified devbuild release." `
+                      -f body="Installer for BreezeDelegate/Vencord. Runtime source: breeze-runtime. VoiceMessageBooster is verified before every runtime publication." `
                       -F prerelease=false `
                       -f make_latest=true *> $null
                   if ($LASTEXITCODE -ne 0) {
@@ -261,4 +264,12 @@ jobs:
                       --jq '.assets | length'
                   if ([int]$assetCount -ne 1) {
                       throw "Installer release must contain exactly one asset, found $assetCount"
+                  }
+
+                  gh release view devbuild --repo $repo *> $null
+                  if ($LASTEXITCODE -eq 0) {
+                      gh release delete devbuild --repo $repo --cleanup-tag --yes
+                      if ($LASTEXITCODE -ne 0) {
+                          throw "Unable to remove obsolete devbuild release"
+                      }
                   }
