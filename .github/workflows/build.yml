@@ -24,7 +24,7 @@ jobs:
         steps:
             - uses: actions/checkout@v7
 
-            - uses: pnpm/action-setup@v6 # Install pnpm using packageManager key in package.json
+            - uses: pnpm/action-setup@v6
 
             - name: Use Node.js 24
               uses: actions/setup-node@v6
@@ -38,50 +38,45 @@ jobs:
             - name: Build web
               run: pnpm buildWebStandalone
 
-            - name: Build
+            - name: Build Vencord
               run: pnpm build --standalone
 
-            - name: Generate plugin list
+            - name: Generate official plugin list
               run: pnpm generatePluginJson dist/plugins.json dist/plugin-readmes.json
+
+            - name: Verify custom plugin is bundled
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test -f src/userplugins/voiceMessageBooster/index.ts
+                  test -s dist/renderer.js
+                  grep -Fq 'VoiceMessageBooster' dist/renderer.js
+                  echo 'VoiceMessageBooster is present in dist/renderer.js'
 
             - name: Clean up obsolete files
               run: |
                   rm -rf dist/*-unpacked dist/vendor Vencord.user.css vencordDesktopRenderer.css vencordDesktopRenderer.css.map
 
-            - name: Get some values needed for the release
-              id: release_values
-              run: |
-                  echo "release_tag=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+            - name: Get release hash
+              run: echo "release_tag=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
-            - name: Upload DevBuild as release
+            - name: Upload verified DevBuild release
               if: github.repository == 'BreezeDelegate/Vencord'
-              run: |
-                  if ! gh release view devbuild >/dev/null 2>&1; then
-                      gh release create devbuild --title "DevBuild $RELEASE_TAG" --notes "Automated Vencord devbuild with BreezeDelegate plugins."
-                  fi
-                  gh release upload devbuild --clobber dist/*
-                  gh release edit devbuild --title "DevBuild $RELEASE_TAG"
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   RELEASE_TAG: ${{ env.release_tag }}
-
-            - name: Upload DevBuild to builds repo
-              if: github.repository == 'Vendicated/Vencord'
               run: |
-                  git config --global user.name "$USERNAME"
-                  git config --global user.email actions@github.com
-
-                  git clone https://$USERNAME:$API_TOKEN@github.com/$GH_REPO.git upload
-                  cd upload
-
-                  GLOBIGNORE=.git:.gitignore:README.md:LICENSE
-                  rm -rf *
-                  cp -r ../dist/* .
-
-                  git add -A
-                  git commit -m "Builds for https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
-                  git push --force https://$USERNAME:$API_TOKEN@github.com/$GH_REPO.git
-              env:
-                  API_TOKEN: ${{ secrets.BUILDS_TOKEN }}
-                  GH_REPO: Vencord/builds
-                  USERNAME: GitHub-Actions
+                  set -euo pipefail
+                  if ! gh release view devbuild >/dev/null 2>&1; then
+                      gh release create devbuild \
+                          --target "$GITHUB_SHA" \
+                          --title "DevBuild $RELEASE_TAG" \
+                          --notes "Verified Vencord devbuild with BreezeDelegate custom plugins." \
+                          --latest
+                  fi
+                  gh release upload devbuild --clobber dist/*
+                  gh release edit devbuild \
+                      --target "$GITHUB_SHA" \
+                      --title "DevBuild $RELEASE_TAG" \
+                      --notes "Verified Vencord devbuild with VoiceMessageBooster bundled." \
+                      --latest
