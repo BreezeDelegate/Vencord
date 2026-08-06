@@ -20,7 +20,7 @@ env:
     VENCORD_REMOTE: BreezeDelegate/Vencord
 
 concurrency:
-    group: breeze-vencord-devbuild
+    group: breeze-vencord-runtime
     cancel-in-progress: true
 
 jobs:
@@ -77,33 +77,34 @@ jobs:
               shell: bash
               run: echo "BUILD_HASH=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
-            - name: Publish clean devbuild runtime release
+            - name: Publish clean runtime release
               if: github.repository == 'BreezeDelegate/Vencord'
               shell: bash
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   set -euo pipefail
+                  TAG=breeze-runtime
 
-                  if ! gh release view devbuild --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-                      gh release create devbuild \
+                  if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                      gh release create "$TAG" \
                           --repo "$GITHUB_REPOSITORY" \
                           --target "$GITHUB_SHA" \
-                          --title "Breeze DevBuild $BUILD_HASH" \
-                          --notes "Runtime files consumed by BreezeVencordInstaller.exe. Do not delete these four assets." \
+                          --title "Breeze Runtime $BUILD_HASH" \
+                          --notes "Required runtime files for BreezeVencordInstaller.exe. Do not delete these four assets." \
                           --prerelease
                   fi
 
                   while IFS= read -r asset; do
-                      [ -z "$asset" ] || gh release delete-asset devbuild "$asset" \
+                      [ -z "$asset" ] || gh release delete-asset "$TAG" "$asset" \
                           --repo "$GITHUB_REPOSITORY" \
                           --yes
-                  done < <(gh release view devbuild \
+                  done < <(gh release view "$TAG" \
                       --repo "$GITHUB_REPOSITORY" \
                       --json assets \
                       --jq '.assets[].name')
 
-                  gh release upload devbuild \
+                  gh release upload "$TAG" \
                       dist/patcher.js \
                       dist/preload.js \
                       dist/renderer.js \
@@ -111,14 +112,14 @@ jobs:
                       --repo "$GITHUB_REPOSITORY" \
                       --clobber
 
-                  RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/devbuild" --jq '.id')
+                  RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
                   gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
-                      -f name="Breeze DevBuild $BUILD_HASH" \
-                      -f body="Runtime files consumed by BreezeVencordInstaller.exe. VoiceMessageBooster verified in renderer.js. Do not delete these four assets." \
+                      -f name="Breeze Runtime $BUILD_HASH" \
+                      -f body="Required runtime files for BreezeVencordInstaller.exe. VoiceMessageBooster and its settings were verified in renderer.js. Do not delete these four assets." \
                       -F prerelease=true \
                       -f make_latest=false >/dev/null
 
-                  ASSET_COUNT=$(gh release view devbuild \
+                  ASSET_COUNT=$(gh release view "$TAG" \
                       --repo "$GITHUB_REPOSITORY" \
                       --json assets \
                       --jq '.assets | length')
