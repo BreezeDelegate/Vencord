@@ -7,9 +7,13 @@
 import { definePluginSettings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
 import definePlugin, { makeRange, OptionType, PluginNative, StartAt } from "@utils/types";
+import { React } from "@webpack/common";
 
 const logger = new Logger("VoiceMessageBooster");
 const Native = VencordNative.pluginHelpers.VoiceMessageBooster as PluginNative<typeof import("./native")>;
+
+const MESSAGE_SELECTOR = '[id^="chat-messages-"], [data-list-item-id^="chat-messages"]';
+const SOURCE_MARKER_SELECTOR = "[data-vmb-src]";
 
 interface BoostSession {
     original: HTMLAudioElement;
@@ -124,6 +128,21 @@ function configureGraph(session: BoostSession) {
     }
 }
 
+function getMessageElement(audio: HTMLAudioElement) {
+    return audio.closest<HTMLElement>(MESSAGE_SELECTOR);
+}
+
+function getPatchedVoiceMessageUrl(audio: HTMLAudioElement) {
+    const message = getMessageElement(audio);
+    const marker = message?.querySelector<HTMLElement>(SOURCE_MARKER_SELECTOR);
+    const src = marker?.dataset.vmbSrc;
+    return src || null;
+}
+
+function getVoiceMessageUrl(audio: HTMLAudioElement) {
+    return getPatchedVoiceMessageUrl(audio) || audio.currentSrc || audio.src || null;
+}
+
 function classLooksLikeVoiceMessage(element: Element | null) {
     for (let current = element, depth = 0; current && depth < 10; current = current.parentElement, depth++) {
         const className = current.getAttribute("class") ?? "";
@@ -133,9 +152,10 @@ function classLooksLikeVoiceMessage(element: Element | null) {
     return false;
 }
 
-function urlLooksLikeVoiceMessage(audio: HTMLAudioElement) {
-    let url = audio.currentSrc || audio.src;
+function urlLooksLikeVoiceMessage(rawUrl: string | null) {
+    if (!rawUrl) return false;
 
+    let url = rawUrl;
     try {
         url = decodeURIComponent(url);
     } catch {
@@ -157,13 +177,14 @@ function hasVoiceMessageLabel(message: Element) {
 }
 
 function isMessageAudio(audio: HTMLAudioElement) {
-    return Boolean(audio.closest('[id^="chat-messages-"], [data-list-item-id^="chat-messages"]'));
+    return Boolean(getMessageElement(audio));
 }
 
 function isVoiceMessage(audio: HTMLAudioElement) {
-    if (urlLooksLikeVoiceMessage(audio) || classLooksLikeVoiceMessage(audio)) return true;
+    if (getPatchedVoiceMessageUrl(audio)) return true;
+    if (urlLooksLikeVoiceMessage(getVoiceMessageUrl(audio)) || classLooksLikeVoiceMessage(audio)) return true;
 
-    const message = audio.closest('[id^="chat-messages-"], [data-list-item-id^="chat-messages"]');
+    const message = getMessageElement(audio);
     if (message && hasVoiceMessageLabel(message)) return true;
 
     return settings.store.compatibilityMode && isMessageAudio(audio);
@@ -258,14 +279,14 @@ async function createSession(original: HTMLAudioElement, url: string) {
     if (context.state === "suspended") await context.resume();
 
     const bytes = await Native.fetchVoiceMessage(url);
-    if (!bytes?.byteLength) throw new Error("Native voice-message download failed");
+    if (!bytes?.byteLength) throw new Error(`Native voice-message download failed for ${new URL(url).hostname}`);
 
     const encoded = new Uint8Array(bytes.byteLength);
     encoded.set(bytes);
     const buffer = await context.decodeAudioData(encoded.buffer);
 
     if (!started) throw new Error("Plugin stopped while preparing audio");
-    if ((original.currentSrc || original.src) !== url) throw new Error("Voice-message source changed while preparing audio");
+    if (getVoiceMessageUrl(original) !== url) throw new Error("Voice-message source changed while preparing audio");
 
     const gain = context.createGain();
     const limiter = context.createDynamicsCompressor();
@@ -318,13 +339,14 @@ async function createSession(original: HTMLAudioElement, url: string) {
 
     if (!original.paused && startSource(session)) {
         original.muted = true;
+        logger.info(`Boost engine active at x${settings.store.multiplier} (${Math.round(buffer.duration * 100) / 100}s)`);
     }
 }
 
 async function boostAudio(audio: HTMLAudioElement) {
     if (!started || !isVoiceMessage(audio)) return;
 
-    const url = audio.currentSrc || audio.src;
+    const url = getVoiceMessageUrl(audio);
     if (!url) return;
 
     const existing = sessions.get(audio);
@@ -360,6 +382,27 @@ export default definePlugin({
     tags: ["Voice", "Utility"],
     settings,
     startAt: StartAt.DOMContentLoaded,
+
+    patches: [
+        {
+            // Discord's voice-message component already receives the canonical signed attachment
+            // URL as arguments[0].src. Add an invisible marker next to its controls so the audio
+            // event handler can use that exact URL instead of a blob/proxy currentSrc.
+            find: "#{intl::VOICE_MESSAGES_PLAYBACK_RATE_LABEL}",
+            replacement: {
+                match: /(?<=onVolumeHide:\i\}\))/,
+                replace: ",$self.renderSourceMarker(arguments[0].src)"
+            }
+        }
+    ],
+
+    renderSourceMarker(src: string) {
+        if (typeof src !== "string" || !src) return null;
+        return React.createElement("span", {
+            "data-vmb-src": src,
+            hidden: true
+        });
+    },
 
     start() {
         started = true;
