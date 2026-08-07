@@ -21,7 +21,7 @@ env:
 
 concurrency:
     group: breeze-vencord-runtime
-    cancel-in-progress: true
+    cancel-in-progress: false
 
 jobs:
     Build:
@@ -77,7 +77,7 @@ jobs:
               shell: bash
               run: echo "BUILD_HASH=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
-            - name: Publish clean runtime release
+            - name: Publish interruption-safe runtime release
               if: github.repository == 'BreezeDelegate/Vencord'
               shell: bash
               env:
@@ -85,6 +85,7 @@ jobs:
               run: |
                   set -euo pipefail
                   TAG=breeze-runtime
+                  REQUIRED=(patcher.js preload.js renderer.js renderer.css)
 
                   if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
                       gh release create "$TAG" \
@@ -95,15 +96,8 @@ jobs:
                           --prerelease
                   fi
 
-                  while IFS= read -r asset; do
-                      [ -z "$asset" ] || gh release delete-asset "$TAG" "$asset" \
-                          --repo "$GITHUB_REPOSITORY" \
-                          --yes
-                  done < <(gh release view "$TAG" \
-                      --repo "$GITHUB_REPOSITORY" \
-                      --json assets \
-                      --jq '.assets[].name')
-
+                  # Never clear the active release first. Replace required assets in place so an
+                  # interrupted/cancelled job cannot leave the installed runtime without a file.
                   gh release upload "$TAG" \
                       dist/patcher.js \
                       dist/preload.js \
@@ -112,6 +106,31 @@ jobs:
                       --repo "$GITHUB_REPOSITORY" \
                       --clobber
 
+                  mapfile -t PUBLISHED < <(gh release view "$TAG" \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --json assets \
+                      --jq '.assets[].name')
+
+                  for required in "${REQUIRED[@]}"; do
+                      if ! printf '%s\n' "${PUBLISHED[@]}" | grep -Fxq "$required"; then
+                          echo "Runtime publication is incomplete: missing $required" >&2
+                          exit 1
+                      fi
+                  done
+
+                  # Required files are now confirmed present. Only now remove unrelated stale assets.
+                  for asset in "${PUBLISHED[@]}"; do
+                      case "$asset" in
+                          patcher.js|preload.js|renderer.js|renderer.css)
+                              ;;
+                          *)
+                              gh release delete-asset "$TAG" "$asset" \
+                                  --repo "$GITHUB_REPOSITORY" \
+                                  --yes
+                              ;;
+                      esac
+                  done
+
                   RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
                   gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
                       -f name="Breeze Runtime $BUILD_HASH" \
@@ -119,9 +138,9 @@ jobs:
                       -F prerelease=true \
                       -f make_latest=false >/dev/null
 
-                  ASSET_COUNT=$(gh release view "$TAG" \
+                  FINAL_ASSETS=$(gh release view "$TAG" \
                       --repo "$GITHUB_REPOSITORY" \
                       --json assets \
-                      --jq '.assets | length')
-                  test "$ASSET_COUNT" -eq 4
-                  echo "Published exactly four required runtime assets."
+                      --jq '[.assets[].name] | sort | join(" ")')
+                  test "$FINAL_ASSETS" = "patcher.js preload.js renderer.css renderer.js"
+                  echo "Published and verified complete Breeze runtime: $FINAL_ASSETS"
