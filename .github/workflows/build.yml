@@ -52,6 +52,7 @@ jobs:
                   set -euo pipefail
 
                   test -s src/userplugins/voiceMessageBooster/index.ts
+                  test -s src/userplugins/voiceMessageBooster/native.ts
 
                   required=(patcher.js preload.js renderer.js renderer.css)
                   for file in "${required[@]}"; do
@@ -62,6 +63,11 @@ jobs:
                   grep -Fq 'VoiceMessageBooster' dist/renderer.js
                   grep -Fq 'Volume multiplier for voice messages' dist/renderer.js
                   grep -Fq 'compatibilityMode' dist/renderer.js
+                  grep -Fq 'data-vmb-src' dist/renderer.js
+                  grep -Fq 'renderSourceMarker' dist/renderer.js
+                  grep -Fq 'Boost engine active' dist/renderer.js
+                  grep -Fq 'cdn.discordapp.com' dist/patcher.js
+                  grep -Fq 'media.discordapp.net' dist/patcher.js
                   grep -Fq 'BreezeDelegate/Vencord' dist/renderer.js
 
                   if ! head -n 5 dist/patcher.js | grep -Fq '// Updater Disabled: true'; then
@@ -69,7 +75,8 @@ jobs:
                       exit 1
                   fi
 
-                  echo 'Verified: VoiceMessageBooster is bundled with its settings.'
+                  echo 'Verified: VoiceMessageBooster is bundled with its direct component source patch.'
+                  echo 'Verified: native Discord attachment downloading is bundled.'
                   echo 'Verified: this build identifies BreezeDelegate/Vencord as its source.'
                   echo 'Verified: the official updater cannot overwrite the fork.'
 
@@ -96,8 +103,6 @@ jobs:
                           --prerelease
                   fi
 
-                  # Never clear the active release first. Replace required assets in place so an
-                  # interrupted/cancelled job cannot leave the installed runtime without a file.
                   gh release upload "$TAG" \
                       dist/patcher.js \
                       dist/preload.js \
@@ -118,7 +123,6 @@ jobs:
                       fi
                   done
 
-                  # Required files are now confirmed present. Only now remove unrelated stale assets.
                   for asset in "${PUBLISHED[@]}"; do
                       case "$asset" in
                           patcher.js|preload.js|renderer.js|renderer.css)
@@ -134,7 +138,7 @@ jobs:
                   RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
                   gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
                       -f name="Breeze Runtime $BUILD_HASH" \
-                      -f body="Required runtime files for BreezeVencordInstaller.exe. VoiceMessageBooster and its settings were verified in renderer.js. Do not delete these four assets." \
+                      -f body="Required runtime files for BreezeVencordInstaller.exe. VoiceMessageBooster direct source patch and native gain engine verified. Do not delete these four assets." \
                       -F prerelease=true \
                       -f make_latest=false >/dev/null
 
