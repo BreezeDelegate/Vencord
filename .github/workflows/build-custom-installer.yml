@@ -206,7 +206,8 @@ jobs:
                   $repo = "BreezeDelegate/Vencord"
 
                   gh release view installer --repo $repo *> $null
-                  if ($LASTEXITCODE -ne 0) {
+                  $installerExists = $LASTEXITCODE -eq 0
+                  if (-not $installerExists) {
                       gh release create installer `
                           --repo $repo `
                           --target $env:GITHUB_SHA `
@@ -262,14 +263,21 @@ jobs:
                       --repo $repo `
                       --json assets `
                       --jq '.assets | length'
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Unable to verify installer release assets"
+                  }
                   if ([int]$assetCount -ne 1) {
                       throw "Installer release must contain exactly one asset, found $assetCount"
                   }
 
                   gh release view devbuild --repo $repo *> $null
-                  if ($LASTEXITCODE -eq 0) {
+                  $obsoleteDevbuildExists = $LASTEXITCODE -eq 0
+                  if ($obsoleteDevbuildExists) {
                       gh release delete devbuild --repo $repo --cleanup-tag --yes
                       if ($LASTEXITCODE -ne 0) {
-                          throw "Unable to remove obsolete devbuild release"
+                          Write-Warning "Could not remove obsolete devbuild release; this does not affect the installer."
                       }
                   }
+
+                  Write-Host "Installer release published successfully with exactly one asset."
+                  exit 0
