@@ -6,32 +6,40 @@
 
 import { definePluginSettings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
-import definePlugin, { makeRange, OptionType, StartAt } from "@utils/types";
+import definePlugin, { makeRange, OptionType, PluginNative, StartAt } from "@utils/types";
 
 const logger = new Logger("VoiceMessageBooster");
+const Native = VencordNative.pluginHelpers.VoiceMessageBooster as PluginNative<typeof import("./native")>;
 
 interface BoostSession {
     original: HTMLAudioElement;
-    processor: HTMLAudioElement;
     context: AudioContext;
-    source: MediaElementAudioSourceNode;
+    buffer: AudioBuffer;
     gain: GainNode;
     limiter: DynamicsCompressorNode;
+    source?: AudioBufferSourceNode;
     url: string;
     originalMuted: boolean;
     driftTimer: number;
+    sourceStartedContextTime: number;
+    sourceStartedMediaTime: number;
     onPause: () => void;
     onSeeking: () => void;
     onRateChange: () => void;
+    onVolumeChange: () => void;
     onEnded: () => void;
 }
 
 const sessions = new WeakMap<HTMLAudioElement, BoostSession>();
 const activeSessions = new Set<BoostSession>();
 const preparingElements = new WeakSet<HTMLAudioElement>();
-const failedElements = new WeakSet<HTMLAudioElement>();
 let audioContext: AudioContext | null = null;
 let started = false;
+
+function getAudioContext() {
+    audioContext ??= new AudioContext({ latencyHint: "interactive" });
+    return audioContext;
+}
 
 function refreshConnectedAudio() {
     for (const session of activeSessions) configureGraph(session);
@@ -68,11 +76,6 @@ const settings = definePluginSettings({
     }
 });
 
-function getAudioContext() {
-    audioContext ??= new AudioContext({ latencyHint: "interactive" });
-    return audioContext;
-}
-
 type SinkAwareAudioContext = AudioContext & {
     sinkId?: string;
     setSinkId?(sinkId: string): Promise<void>;
@@ -100,21 +103,20 @@ async function syncOutputDevice(context: AudioContext, audio: HTMLAudioElement) 
 
 function configureGraph(session: BoostSession) {
     const now = session.context.currentTime;
+    const effectiveGain = Math.max(0, session.original.volume) * settings.store.multiplier;
 
-    session.source.disconnect();
     session.gain.disconnect();
     session.limiter.disconnect();
 
     session.gain.gain.cancelScheduledValues(now);
-    session.gain.gain.setTargetAtTime(settings.store.multiplier, now, 0.01);
-    session.source.connect(session.gain);
+    session.gain.gain.setTargetAtTime(effectiveGain, now, 0.01);
 
     if (settings.store.limiter) {
         session.limiter.threshold.setValueAtTime(-2, now);
-        session.limiter.knee.setValueAtTime(8, now);
-        session.limiter.ratio.setValueAtTime(16, now);
-        session.limiter.attack.setValueAtTime(0.003, now);
-        session.limiter.release.setValueAtTime(0.2, now);
+        session.limiter.knee.setValueAtTime(6, now);
+        session.limiter.ratio.setValueAtTime(12, now);
+        session.limiter.attack.setValueAtTime(0.002, now);
+        session.limiter.release.setValueAtTime(0.15, now);
         session.gain.connect(session.limiter);
         session.limiter.connect(session.context.destination);
     } else {
@@ -167,47 +169,73 @@ function isVoiceMessage(audio: HTMLAudioElement) {
     return settings.store.compatibilityMode && isMessageAudio(audio);
 }
 
-function syncPlayback(session: BoostSession, force = false) {
-    const { original, processor } = session;
+function stopSource(session: BoostSession) {
+    const source = session.source;
+    if (!source) return;
 
-    processor.playbackRate = original.playbackRate;
+    session.source = undefined;
+    source.onended = null;
 
-    const targetTime = original.currentTime;
-    if (!Number.isFinite(targetTime)) return;
+    try {
+        source.stop();
+    } catch {
+        // The source may already have ended.
+    }
 
-    const drift = Math.abs(processor.currentTime - targetTime);
-    if (force || drift > 0.25) {
-        try {
-            processor.currentTime = targetTime;
-        } catch {
-            // Metadata may not be ready yet. The next drift check will retry.
-        }
+    try {
+        source.disconnect();
+    } catch {
+        // The source may already be disconnected.
     }
 }
 
+function startSource(session: BoostSession) {
+    const { original, buffer, context } = session;
+    if (original.paused || original.ended) return false;
+
+    const offset = Math.max(0, Math.min(original.currentTime, buffer.duration));
+    if (!Number.isFinite(offset) || offset >= buffer.duration) return false;
+
+    stopSource(session);
+
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.setValueAtTime(Math.max(0.1, original.playbackRate), context.currentTime);
+    source.connect(session.gain);
+    source.start(0, offset);
+
+    session.source = source;
+    session.sourceStartedContextTime = context.currentTime;
+    session.sourceStartedMediaTime = offset;
+
+    source.onended = () => {
+        if (session.source !== source) return;
+        session.source = undefined;
+        try {
+            source.disconnect();
+        } catch { }
+    };
+
+    return true;
+}
+
 function cleanupSession(session: BoostSession, restoreOriginal = true) {
-    if (!activeSessions.delete(session)) return;
+    activeSessions.delete(session);
+    if (sessions.get(session.original) === session) sessions.delete(session.original);
 
-    sessions.delete(session.original);
     window.clearInterval(session.driftTimer);
-
     session.original.removeEventListener("pause", session.onPause);
     session.original.removeEventListener("seeking", session.onSeeking);
     session.original.removeEventListener("ratechange", session.onRateChange);
+    session.original.removeEventListener("volumechange", session.onVolumeChange);
     session.original.removeEventListener("ended", session.onEnded);
 
-    session.processor.pause();
+    stopSource(session);
 
     try {
-        session.source.disconnect();
         session.gain.disconnect();
         session.limiter.disconnect();
-    } catch {
-        // Nodes may already be disconnected while Discord tears down the player.
-    }
-
-    session.processor.removeAttribute("src");
-    session.processor.load();
+    } catch { }
 
     if (restoreOriginal && session.original.isConnected) {
         session.original.muted = session.originalMuted;
@@ -215,23 +243,13 @@ function cleanupSession(session: BoostSession, restoreOriginal = true) {
 }
 
 async function resumeSession(session: BoostSession) {
-    const { context, original, processor } = session;
+    const { context, original } = session;
 
     await syncOutputDevice(context, original);
     if (context.state === "suspended") await context.resume();
 
-    syncPlayback(session, true);
-    processor.volume = original.volume;
-
-    try {
-        await processor.play();
-        if (!original.paused) original.muted = true;
-        else processor.pause();
-    } catch (error) {
-        logger.error("Failed to resume boosted voice-message playback; restoring Discord audio", error);
-        failedElements.add(original);
-        cleanupSession(session, true);
-    }
+    configureGraph(session);
+    if (startSource(session)) original.muted = true;
 }
 
 async function createSession(original: HTMLAudioElement, url: string) {
@@ -239,61 +257,51 @@ async function createSession(original: HTMLAudioElement, url: string) {
     await syncOutputDevice(context, original);
     if (context.state === "suspended") await context.resume();
 
-    // Discord voice-message attachments are loaded from a different origin. Creating a
-    // MediaElementAudioSourceNode from Discord's existing element can therefore produce
-    // mandatory CORS silence. A dedicated element is created with CORS enabled before its
-    // source URL is assigned, leaving Discord's own player untouched as a safe fallback.
-    const processor = new Audio();
-    processor.crossOrigin = "anonymous";
-    processor.preload = "auto";
-    processor.volume = 0;
-    processor.playbackRate = original.playbackRate;
-    processor.src = url;
+    const bytes = await Native.fetchVoiceMessage(url);
+    if (!bytes?.byteLength) throw new Error("Native voice-message download failed");
 
-    const source = context.createMediaElementSource(processor);
+    const encoded = new Uint8Array(bytes.byteLength);
+    encoded.set(bytes);
+    const buffer = await context.decodeAudioData(encoded.buffer);
+
+    if (!started) throw new Error("Plugin stopped while preparing audio");
+    if ((original.currentSrc || original.src) !== url) throw new Error("Voice-message source changed while preparing audio");
+
     const gain = context.createGain();
     const limiter = context.createDynamicsCompressor();
 
     const session = {
         original,
-        processor,
         context,
-        source,
+        buffer,
         gain,
         limiter,
         url,
         originalMuted: original.muted,
         driftTimer: 0,
-        onPause: () => processor.pause(),
-        onSeeking: () => syncPlayback(session, true),
-        onRateChange: () => {
-            processor.playbackRate = original.playbackRate;
+        sourceStartedContextTime: 0,
+        sourceStartedMediaTime: 0,
+        onPause: () => stopSource(session),
+        onSeeking: () => {
+            if (!original.paused) startSource(session);
         },
+        onRateChange: () => {
+            if (!original.paused) startSource(session);
+        },
+        onVolumeChange: () => configureGraph(session),
         onEnded: () => cleanupSession(session, true)
     } satisfies BoostSession;
 
     configureGraph(session);
 
-    try {
-        // Start at zero volume first so Discord's original player remains audible until the
-        // CORS-enabled copy has actually started successfully.
-        await processor.play();
-    } catch (error) {
-        processor.removeAttribute("src");
-        processor.load();
-        source.disconnect();
-        gain.disconnect();
-        limiter.disconnect();
-        throw error;
-    }
-
-    syncPlayback(session, true);
-    processor.volume = original.volume;
-
     original.addEventListener("pause", session.onPause);
     original.addEventListener("seeking", session.onSeeking);
     original.addEventListener("ratechange", session.onRateChange);
+    original.addEventListener("volumechange", session.onVolumeChange);
     original.addEventListener("ended", session.onEnded);
+
+    sessions.set(original, session);
+    activeSessions.add(session);
 
     session.driftTimer = window.setInterval(() => {
         if (!original.isConnected) {
@@ -301,21 +309,20 @@ async function createSession(original: HTMLAudioElement, url: string) {
             return;
         }
 
-        if (!original.paused) syncPlayback(session);
+        if (original.paused || !session.source) return;
+
+        const elapsed = context.currentTime - session.sourceStartedContextTime;
+        const expectedTime = session.sourceStartedMediaTime + elapsed * Math.max(0.1, original.playbackRate);
+        if (Math.abs(original.currentTime - expectedTime) > 0.2) startSource(session);
     }, 500);
 
-    sessions.set(original, session);
-    activeSessions.add(session);
-
-    if (original.paused) {
-        processor.pause();
-    } else {
+    if (!original.paused && startSource(session)) {
         original.muted = true;
     }
 }
 
 async function boostAudio(audio: HTMLAudioElement) {
-    if (!started || failedElements.has(audio) || !isVoiceMessage(audio)) return;
+    if (!started || !isVoiceMessage(audio)) return;
 
     const url = audio.currentSrc || audio.src;
     if (!url) return;
@@ -336,8 +343,7 @@ async function boostAudio(audio: HTMLAudioElement) {
     try {
         await createSession(audio, url);
     } catch (error) {
-        failedElements.add(audio);
-        logger.error("Boosted playback could not start; Discord's original audio was left untouched", error);
+        logger.error("Boosted playback could not start; Discord's original audio remains active", error);
     } finally {
         preparingElements.delete(audio);
     }
@@ -368,8 +374,10 @@ export default definePlugin({
         started = false;
         document.removeEventListener("play", onAudioPlay, true);
 
-        for (const session of Array.from(activeSessions)) {
-            cleanupSession(session, true);
-        }
+        for (const session of [...activeSessions]) cleanupSession(session, true);
+
+        const context = audioContext;
+        audioContext = null;
+        if (context && context.state !== "closed") void context.close();
     }
 });
