@@ -10,30 +10,38 @@ import definePlugin, { makeRange, OptionType, StartAt } from "@utils/types";
 
 const logger = new Logger("VoiceMessageBooster");
 
-interface AudioGraph {
+interface BoostSession {
+    original: HTMLAudioElement;
+    processor: HTMLAudioElement;
     context: AudioContext;
     source: MediaElementAudioSourceNode;
     gain: GainNode;
     limiter: DynamicsCompressorNode;
+    url: string;
+    originalMuted: boolean;
+    driftTimer: number;
+    onPause: () => void;
+    onSeeking: () => void;
+    onRateChange: () => void;
+    onEnded: () => void;
 }
 
-const graphs = new WeakMap<HTMLAudioElement, AudioGraph>();
+const sessions = new WeakMap<HTMLAudioElement, BoostSession>();
+const activeSessions = new Set<BoostSession>();
+const preparingElements = new WeakSet<HTMLAudioElement>();
 const failedElements = new WeakSet<HTMLAudioElement>();
 let audioContext: AudioContext | null = null;
 let started = false;
+
+function refreshConnectedAudio() {
+    for (const session of activeSessions) configureGraph(session);
+}
 
 function rescanPlayingAudio() {
     if (!started) return;
 
     document.querySelectorAll<HTMLAudioElement>("audio").forEach(audio => {
         if (!audio.paused) void boostAudio(audio);
-    });
-}
-
-function refreshConnectedAudio() {
-    document.querySelectorAll<HTMLAudioElement>("audio").forEach(audio => {
-        const graph = graphs.get(audio);
-        if (graph) configureGraph(graph, started);
     });
 }
 
@@ -90,32 +98,27 @@ async function syncOutputDevice(context: AudioContext, audio: HTMLAudioElement) 
     }
 }
 
-function configureGraph(graph: AudioGraph, enableBoost: boolean) {
-    const now = graph.context.currentTime;
+function configureGraph(session: BoostSession) {
+    const now = session.context.currentTime;
 
-    graph.source.disconnect();
-    graph.gain.disconnect();
-    graph.limiter.disconnect();
+    session.source.disconnect();
+    session.gain.disconnect();
+    session.limiter.disconnect();
 
-    if (!enableBoost) {
-        graph.source.connect(graph.context.destination);
-        return;
-    }
-
-    graph.gain.gain.cancelScheduledValues(now);
-    graph.gain.gain.setTargetAtTime(settings.store.multiplier, now, 0.01);
-    graph.source.connect(graph.gain);
+    session.gain.gain.cancelScheduledValues(now);
+    session.gain.gain.setTargetAtTime(settings.store.multiplier, now, 0.01);
+    session.source.connect(session.gain);
 
     if (settings.store.limiter) {
-        graph.limiter.threshold.setValueAtTime(-2, now);
-        graph.limiter.knee.setValueAtTime(8, now);
-        graph.limiter.ratio.setValueAtTime(16, now);
-        graph.limiter.attack.setValueAtTime(0.003, now);
-        graph.limiter.release.setValueAtTime(0.2, now);
-        graph.gain.connect(graph.limiter);
-        graph.limiter.connect(graph.context.destination);
+        session.limiter.threshold.setValueAtTime(-2, now);
+        session.limiter.knee.setValueAtTime(8, now);
+        session.limiter.ratio.setValueAtTime(16, now);
+        session.limiter.attack.setValueAtTime(0.003, now);
+        session.limiter.release.setValueAtTime(0.2, now);
+        session.gain.connect(session.limiter);
+        session.limiter.connect(session.context.destination);
     } else {
-        graph.gain.connect(graph.context.destination);
+        session.gain.connect(session.context.destination);
     }
 }
 
@@ -164,31 +167,171 @@ function isVoiceMessage(audio: HTMLAudioElement) {
     return settings.store.compatibilityMode && isMessageAudio(audio);
 }
 
+function syncPlayback(session: BoostSession, force = false) {
+    const { original, processor } = session;
+
+    processor.playbackRate = original.playbackRate;
+
+    const targetTime = original.currentTime;
+    if (!Number.isFinite(targetTime)) return;
+
+    const drift = Math.abs(processor.currentTime - targetTime);
+    if (force || drift > 0.25) {
+        try {
+            processor.currentTime = targetTime;
+        } catch {
+            // Metadata may not be ready yet. The next drift check will retry.
+        }
+    }
+}
+
+function cleanupSession(session: BoostSession, restoreOriginal = true) {
+    if (!activeSessions.delete(session)) return;
+
+    sessions.delete(session.original);
+    window.clearInterval(session.driftTimer);
+
+    session.original.removeEventListener("pause", session.onPause);
+    session.original.removeEventListener("seeking", session.onSeeking);
+    session.original.removeEventListener("ratechange", session.onRateChange);
+    session.original.removeEventListener("ended", session.onEnded);
+
+    session.processor.pause();
+
+    try {
+        session.source.disconnect();
+        session.gain.disconnect();
+        session.limiter.disconnect();
+    } catch {
+        // Nodes may already be disconnected while Discord tears down the player.
+    }
+
+    session.processor.removeAttribute("src");
+    session.processor.load();
+
+    if (restoreOriginal && session.original.isConnected) {
+        session.original.muted = session.originalMuted;
+    }
+}
+
+async function resumeSession(session: BoostSession) {
+    const { context, original, processor } = session;
+
+    await syncOutputDevice(context, original);
+    if (context.state === "suspended") await context.resume();
+
+    syncPlayback(session, true);
+    processor.volume = original.volume;
+
+    try {
+        await processor.play();
+        if (!original.paused) original.muted = true;
+    } catch (error) {
+        logger.error("Failed to resume boosted voice-message playback; restoring Discord audio", error);
+        failedElements.add(original);
+        cleanupSession(session, true);
+    }
+}
+
+async function createSession(original: HTMLAudioElement, url: string) {
+    const context = getAudioContext();
+    await syncOutputDevice(context, original);
+    if (context.state === "suspended") await context.resume();
+
+    // Discord voice-message attachments are loaded from a different origin. Creating a
+    // MediaElementAudioSourceNode from Discord's existing element can therefore produce
+    // mandatory CORS silence. A dedicated element is created with CORS enabled before its
+    // source URL is assigned, leaving Discord's own player untouched as a safe fallback.
+    const processor = new Audio();
+    processor.crossOrigin = "anonymous";
+    processor.preload = "auto";
+    processor.volume = 0;
+    processor.playbackRate = original.playbackRate;
+    processor.src = url;
+
+    const source = context.createMediaElementSource(processor);
+    const gain = context.createGain();
+    const limiter = context.createDynamicsCompressor();
+
+    const session = {
+        original,
+        processor,
+        context,
+        source,
+        gain,
+        limiter,
+        url,
+        originalMuted: original.muted,
+        driftTimer: 0,
+        onPause: () => processor.pause(),
+        onSeeking: () => syncPlayback(session, true),
+        onRateChange: () => {
+            processor.playbackRate = original.playbackRate;
+        },
+        onEnded: () => cleanupSession(session, true)
+    } satisfies BoostSession;
+
+    configureGraph(session);
+
+    try {
+        // Start at zero volume first so Discord's original player remains audible until the
+        // CORS-enabled copy has actually started successfully.
+        await processor.play();
+    } catch (error) {
+        processor.removeAttribute("src");
+        processor.load();
+        source.disconnect();
+        gain.disconnect();
+        limiter.disconnect();
+        throw error;
+    }
+
+    syncPlayback(session, true);
+    processor.volume = original.volume;
+
+    original.addEventListener("pause", session.onPause);
+    original.addEventListener("seeking", session.onSeeking);
+    original.addEventListener("ratechange", session.onRateChange);
+    original.addEventListener("ended", session.onEnded);
+
+    session.driftTimer = window.setInterval(() => {
+        if (!original.paused) syncPlayback(session);
+    }, 500);
+
+    sessions.set(original, session);
+    activeSessions.add(session);
+
+    if (!original.paused) original.muted = true;
+}
+
 async function boostAudio(audio: HTMLAudioElement) {
     if (!started || failedElements.has(audio) || !isVoiceMessage(audio)) return;
 
-    const context = getAudioContext();
-    await syncOutputDevice(context, audio);
-    if (context.state === "suspended") await context.resume();
+    const url = audio.currentSrc || audio.src;
+    if (!url) return;
 
-    let graph = graphs.get(audio);
-    if (!graph) {
-        try {
-            graph = {
-                context,
-                source: context.createMediaElementSource(audio),
-                gain: context.createGain(),
-                limiter: context.createDynamicsCompressor()
-            };
-            graphs.set(audio, graph);
-        } catch (error) {
-            failedElements.add(audio);
-            logger.error("Failed to connect a voice-message player to the Web Audio API", error);
+    const existing = sessions.get(audio);
+    if (existing) {
+        if (existing.url === url) {
+            await resumeSession(existing);
             return;
         }
+
+        cleanupSession(existing, true);
     }
 
-    configureGraph(graph, true);
+    if (preparingElements.has(audio)) return;
+    preparingElements.add(audio);
+
+    try {
+        await createSession(audio, url);
+    } catch (error) {
+        failedElements.add(audio);
+        audio.muted = false;
+        logger.error("Boosted playback could not start; Discord's original audio was left untouched", error);
+    } finally {
+        preparingElements.delete(audio);
+    }
 }
 
 function onAudioPlay(event: Event) {
@@ -215,6 +358,9 @@ export default definePlugin({
     stop() {
         started = false;
         document.removeEventListener("play", onAudioPlay, true);
-        refreshConnectedAudio();
+
+        for (const session of Array.from(activeSessions)) {
+            cleanupSession(session, true);
+        }
     }
 });
