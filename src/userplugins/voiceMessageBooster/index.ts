@@ -226,6 +226,7 @@ async function resumeSession(session: BoostSession) {
     try {
         await processor.play();
         if (!original.paused) original.muted = true;
+        else processor.pause();
     } catch (error) {
         logger.error("Failed to resume boosted voice-message playback; restoring Discord audio", error);
         failedElements.add(original);
@@ -295,13 +296,22 @@ async function createSession(original: HTMLAudioElement, url: string) {
     original.addEventListener("ended", session.onEnded);
 
     session.driftTimer = window.setInterval(() => {
+        if (!original.isConnected) {
+            cleanupSession(session, false);
+            return;
+        }
+
         if (!original.paused) syncPlayback(session);
     }, 500);
 
     sessions.set(original, session);
     activeSessions.add(session);
 
-    if (!original.paused) original.muted = true;
+    if (original.paused) {
+        processor.pause();
+    } else {
+        original.muted = true;
+    }
 }
 
 async function boostAudio(audio: HTMLAudioElement) {
@@ -327,7 +337,6 @@ async function boostAudio(audio: HTMLAudioElement) {
         await createSession(audio, url);
     } catch (error) {
         failedElements.add(audio);
-        audio.muted = false;
         logger.error("Boosted playback could not start; Discord's original audio was left untouched", error);
     } finally {
         preparingElements.delete(audio);
