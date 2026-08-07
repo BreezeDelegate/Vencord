@@ -14,6 +14,7 @@ const Native = VencordNative.pluginHelpers.VoiceMessageBooster as PluginNative<t
 
 const MESSAGE_SELECTOR = '[id^="chat-messages-"], [data-list-item-id^="chat-messages"]';
 const SOURCE_MARKER_SELECTOR = "[data-vmb-src]";
+const BOOST_SCALE = 2.5;
 
 interface BoostSession {
     original: HTMLAudioElement;
@@ -60,9 +61,9 @@ function rescanPlayingAudio() {
 const settings = definePluginSettings({
     multiplier: {
         type: OptionType.SLIDER,
-        description: "Volume multiplier for voice messages. Increase it gradually to protect your hearing.",
-        markers: makeRange(1, 5, 0.25),
-        default: 2.5,
+        description: "Volume multiplier for voice messages. Scale: 1 = x2.5, 2 = x5, 3 = x7.5, 4 = x10.",
+        markers: makeRange(1, 4, 0.25),
+        default: 2,
         stickToMarkers: true,
         onChange: refreshConnectedAudio
     },
@@ -107,7 +108,7 @@ async function syncOutputDevice(context: AudioContext, audio: HTMLAudioElement) 
 
 function configureGraph(session: BoostSession) {
     const now = session.context.currentTime;
-    const effectiveGain = Math.max(0, session.original.volume) * settings.store.multiplier;
+    const effectiveGain = Math.max(0, session.original.volume) * settings.store.multiplier * BOOST_SCALE;
 
     session.gain.disconnect();
     session.limiter.disconnect();
@@ -339,7 +340,8 @@ async function createSession(original: HTMLAudioElement, url: string) {
 
     if (!original.paused && startSource(session)) {
         original.muted = true;
-        logger.info(`Boost engine active at x${settings.store.multiplier} (${Math.round(buffer.duration * 100) / 100}s)`);
+        const actualMultiplier = Math.round(settings.store.multiplier * BOOST_SCALE * 100) / 100;
+        logger.info(`Boost engine active at x${actualMultiplier} (${Math.round(buffer.duration * 100) / 100}s)`);
     }
 }
 
