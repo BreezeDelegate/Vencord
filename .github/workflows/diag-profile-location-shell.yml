@@ -1,9 +1,9 @@
-name: Diagnostic Profile Location Shell
+name: Diagnostic Profile Location Leaflet
 
 on:
     push:
         branches:
-            - diag/profile-location-shell
+            - diag/profile-location-leaflet
         paths:
             - .github/workflows/diag-profile-location-shell.yml
             - src/**
@@ -50,19 +50,19 @@ jobs:
                   test -s dist/renderer.js
                   test -s dist/renderer.css
                   grep -Fq 'ProfileLocationWidget' dist/renderer.js
-                  grep -Fq 'Diagnostic shell for the local-only profile location widget.' dist/renderer.js
+                  grep -Fq 'Diagnostic shell loading Leaflet' dist/renderer.js
                   grep -Fq 'VoiceMessageBooster' dist/renderer.js
                   grep -Fq 'BreezeDelegate/Vencord' dist/renderer.js
                   if grep -Fq 'nominatim.openstreetmap.org/search' dist/renderer.js; then
-                      echo 'Unexpected geocoder code is still bundled in shell diagnostic.' >&2
+                      echo 'Unexpected geocoder code is bundled in Leaflet-only diagnostic.' >&2
                       exit 1
                   fi
                   if grep -Fq 'ProfileLocationWidget.locations.v1' dist/renderer.js; then
-                      echo 'Unexpected location store code is still bundled in shell diagnostic.' >&2
+                      echo 'Unexpected location store code is bundled in Leaflet-only diagnostic.' >&2
                       exit 1
                   fi
                   if ! grep -Fq 'enabledByDefault:!1' dist/renderer.js && ! grep -Fq 'enabledByDefault:false' dist/renderer.js; then
-                      echo 'Could not verify diagnostic shell is disabled by default.' >&2
+                      echo 'Could not verify diagnostic plugin is disabled by default.' >&2
                       exit 1
                   fi
                   if ! head -n 5 dist/patcher.js | grep -Fq '// Updater Disabled: true'; then
@@ -101,7 +101,7 @@ jobs:
 
                   RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
                   gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
-                      -f name="Breeze Runtime diagnostic profile-location-shell" \
-                      -f body="Diagnostic runtime: ProfileLocationWidget is reduced to an inert disabled shell with no component, store, styles, Leaflet, tz-lookup, or profile patches imported. This isolates whether the startup regression is caused by plugin registration itself or by one of its imported modules." \
+                      -f name="Breeze Runtime diagnostic profile-location-leaflet" \
+                      -f body="Diagnostic runtime: inert disabled ProfileLocationWidget plus Leaflet import/version evaluation only. No location component, store, geocoder, tz-lookup, styles, or profile patches. If Vencord fails to start, Leaflet module evaluation is the isolated cause." \
                       -F prerelease=true \
                       -f make_latest=false >/dev/null
