@@ -22,7 +22,9 @@ concurrency:
 
 env:
     FORCE_COLOR: true
-    UPSTREAM_INSTALLER_REF: v1.4.0
+    # Exact upstream source that our installer used when it was working in August.
+    # Keep this pinned until we deliberately validate and promote a newer installer revision.
+    UPSTREAM_INSTALLER_COMMIT: 3c814d29378a8a5373fedc7ca5c2755e71b83a6e
     BUILD_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/tags/breeze-runtime
     INSTALLER_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/tags/installer
     INSTALLER_DOWNLOAD_BASE: https://github.com/BreezeDelegate/Vencord/releases/download/installer/
@@ -33,19 +35,26 @@ jobs:
         runs-on: windows-latest
 
         steps:
-            - name: Clone known-good official installer source
+            - name: Checkout last known-good official installer source
               shell: pwsh
               run: |
                   $ErrorActionPreference = "Stop"
-                  git clone --depth 1 --branch $env:UPSTREAM_INSTALLER_REF https://github.com/Vencord/Installer.git installer
-                  if ($LASTEXITCODE -ne 0) { throw "Unable to clone Vencord Installer $env:UPSTREAM_INSTALLER_REF" }
-
+                  New-Item -ItemType Directory -Path installer | Out-Null
                   Push-Location installer
-                  $resolvedRef = git describe --tags --exact-match HEAD
-                  if ($LASTEXITCODE -ne 0 -or $resolvedRef.Trim() -ne $env:UPSTREAM_INSTALLER_REF) {
-                      throw "Expected Vencord Installer $env:UPSTREAM_INSTALLER_REF, got $resolvedRef"
+                  git init
+                  if ($LASTEXITCODE -ne 0) { throw "Unable to initialise installer repository" }
+                  git remote add origin https://github.com/Vencord/Installer.git
+                  if ($LASTEXITCODE -ne 0) { throw "Unable to add upstream installer remote" }
+                  git fetch --depth 1 origin $env:UPSTREAM_INSTALLER_COMMIT
+                  if ($LASTEXITCODE -ne 0) { throw "Unable to fetch pinned Vencord Installer commit $env:UPSTREAM_INSTALLER_COMMIT" }
+                  git checkout --detach FETCH_HEAD
+                  if ($LASTEXITCODE -ne 0) { throw "Unable to checkout pinned Vencord Installer commit" }
+
+                  $resolvedCommit = (git rev-parse HEAD).Trim()
+                  if ($resolvedCommit -ne $env:UPSTREAM_INSTALLER_COMMIT) {
+                      throw "Expected Vencord Installer $env:UPSTREAM_INSTALLER_COMMIT, got $resolvedCommit"
                   }
-                  Write-Host "Using known-good upstream installer: $resolvedRef"
+                  Write-Host "Using last known-good upstream installer commit: $resolvedCommit"
                   Pop-Location
 
             - name: Point installer exclusively to BreezeDelegate releases
@@ -261,7 +270,7 @@ jobs:
 
                   gh api --method PATCH "repos/$repo/releases/$releaseId" `
                       -f name="Breeze Vencord Installer" `
-                      -f body="Installer for BreezeDelegate/Vencord. Runtime source: breeze-runtime. Upstream installer pinned to v1.4.0 while Vencord issue #4607 affects v1.4.1. VoiceMessageBooster and ProfileLocationWidget are verified before every runtime publication." `
+                      -f body="Installer for BreezeDelegate/Vencord. Runtime source: breeze-runtime. Upstream installer source is pinned to the exact last known-good commit 3c814d29378a8a5373fedc7ca5c2755e71b83a6e used by Breeze before the September installer regression. VoiceMessageBooster and ProfileLocationWidget are verified before every runtime publication." `
                       -F prerelease=false `
                       -f make_latest=true *> $null
                   if ($LASTEXITCODE -ne 0) {
