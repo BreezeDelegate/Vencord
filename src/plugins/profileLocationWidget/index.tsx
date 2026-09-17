@@ -19,7 +19,7 @@ export default definePlugin({
     description: "Adds local-only custom locations, an interactive map and local time to user profiles.",
     authors: [Devs.BreezeDelegate],
     tags: ["Appearance", "Utility"],
-    enabledByDefault: true,
+    enabledByDefault: false,
     managedStyle,
 
     patches: [
