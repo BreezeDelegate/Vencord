@@ -1,0 +1,99 @@
+name: Diagnostic Profile Location Disabled
+
+on:
+    push:
+        branches:
+            - diag/profile-location-disabled
+        paths:
+            - .github/workflows/diag-profile-location-disabled.yml
+            - src/**
+            - package.json
+            - pnpm-lock.yaml
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+env:
+    FORCE_COLOR: true
+    VENCORD_REMOTE: BreezeDelegate/Vencord
+
+jobs:
+    Build:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout diagnostic runtime
+              uses: actions/checkout@v7
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v6
+
+            - name: Setup Node.js 24
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build desktop fork
+              run: pnpm build --standalone --disable-updater
+
+            - name: Verify diagnostic boundary
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test -s dist/patcher.js
+                  test -s dist/preload.js
+                  test -s dist/renderer.js
+                  test -s dist/renderer.css
+                  grep -Fq 'ProfileLocationWidget' dist/renderer.js
+                  grep -Fq 'ProfileLocationWidget.locations.v1' dist/renderer.js
+                  grep -Fq 'VoiceMessageBooster' dist/renderer.js
+                  grep -Fq 'BreezeDelegate/Vencord' dist/renderer.js
+                  if ! grep -Fq 'enabledByDefault:!1' dist/renderer.js && ! grep -Fq 'enabledByDefault:false' dist/renderer.js; then
+                      echo 'Could not verify ProfileLocationWidget is disabled by default in the built bundle.' >&2
+                      exit 1
+                  fi
+                  if ! head -n 5 dist/patcher.js | grep -Fq '// Updater Disabled: true'; then
+                      echo 'The built-in Vencord updater is not disabled.' >&2
+                      exit 1
+                  fi
+
+            - name: Publish diagnostic runtime
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  TAG=breeze-runtime
+                  REQUIRED=(patcher.js preload.js renderer.js renderer.css)
+
+                  gh release upload "$TAG" \
+                      dist/patcher.js \
+                      dist/preload.js \
+                      dist/renderer.js \
+                      dist/renderer.css \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --clobber
+
+                  mapfile -t PUBLISHED < <(gh release view "$TAG" \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --json assets \
+                      --jq '.assets[].name')
+
+                  for required in "${REQUIRED[@]}"; do
+                      if ! printf '%s\n' "${PUBLISHED[@]}" | grep -Fxq "$required"; then
+                          echo "Diagnostic publication is incomplete: missing $required" >&2
+                          exit 1
+                      fi
+                  done
+
+                  RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
+                  gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+                      -f name="Breeze Runtime diagnostic profile-location-disabled" \
+                      -f body="Diagnostic runtime: ProfileLocationWidget is bundled but disabled by default. If Vencord starts with this build, the failure is in plugin activation/patch execution rather than module bundling/import." \
+                      -F prerelease=true \
+                      -f make_latest=false >/dev/null
