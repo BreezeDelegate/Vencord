@@ -252,7 +252,7 @@ jobs:
 
                   gh api --method PATCH "repos/$repo/releases/$releaseId" `
                       -f name="Breeze Vencord Installer" `
-                      -f body="Installer for BreezeDelegate/Vencord. Runtime source: breeze-runtime. VoiceMessageBooster is verified before every runtime publication." `
+                      -f body="Installer for BreezeDelegate/Vencord. Runtime source: breeze-runtime. VoiceMessageBooster and ProfileLocationWidget are verified before every runtime publication." `
                       -F prerelease=false `
                       -f make_latest=true *> $null
                   if ($LASTEXITCODE -ne 0) {

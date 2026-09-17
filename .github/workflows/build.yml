@@ -66,6 +66,9 @@ jobs:
                   grep -Fq 'data-vmb-src' dist/renderer.js
                   grep -Fq 'renderSourceMarker' dist/renderer.js
                   grep -Fq 'Boost engine active' dist/renderer.js
+                  grep -Fq 'ProfileLocationWidget' dist/renderer.js
+                  grep -Fq 'ProfileLocationWidget.locations.v1' dist/renderer.js
+                  grep -Fq 'nominatim.openstreetmap.org/search' dist/renderer.js
                   grep -Fq 'cdn.discordapp.com' dist/patcher.js
                   grep -Fq 'media.discordapp.net' dist/patcher.js
                   grep -Fq 'BreezeDelegate/Vencord' dist/renderer.js
@@ -138,7 +141,7 @@ jobs:
                   RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
                   gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
                       -f name="Breeze Runtime $BUILD_HASH" \
-                      -f body="Required runtime files for BreezeVencordInstaller.exe. VoiceMessageBooster direct source patch and native gain engine verified. Do not delete these four assets." \
+                      -f body="Required runtime files for BreezeVencordInstaller.exe. VoiceMessageBooster and ProfileLocationWidget verified. Do not delete these four assets." \
                       -F prerelease=true \
                       -f make_latest=false >/dev/null
 

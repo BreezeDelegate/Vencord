@@ -1,5 +1,7 @@
 # Vencord
 
+> **BreezeDelegate fork:** this branch tracks upstream Vencord and ships the custom Breeze runtime/installer plus local plugins such as `VoiceMessageBooster` and `ProfileLocationWidget`. See [docs/BREEZE_FORK.md](docs/BREEZE_FORK.md) for install/update, release and development details.
+
 ![](https://img.shields.io/github/package-json/v/Vendicated/Vencord?style=for-the-badge&logo=github&logoColor=d3869b&label=&color=1d2021&labelColor=282828)
 
 ![](https://github.com/user-attachments/assets/3fac98c0-c411-4d2a-97a3-13b7da8687a2)
