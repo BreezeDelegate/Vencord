@@ -91,7 +91,7 @@ type SinkAwareAudioElement = HTMLAudioElement & {
 };
 
 async function syncOutputDevice(context: AudioContext, audio: HTMLAudioElement) {
-    const sinkId = (audio as SinkAwareAudioElement).sinkId;
+    const { sinkId } = (audio as SinkAwareAudioElement);
     const sinkContext = context as SinkAwareAudioContext;
 
     if (sinkId == null || !sinkContext.setSinkId) return;
@@ -192,7 +192,7 @@ function isVoiceMessage(audio: HTMLAudioElement) {
 }
 
 function stopSource(session: BoostSession) {
-    const source = session.source;
+    const { source } = session;
     if (!source) return;
 
     session.source = undefined;
@@ -292,7 +292,7 @@ async function createSession(original: HTMLAudioElement, url: string) {
     const gain = context.createGain();
     const limiter = context.createDynamicsCompressor();
 
-    const session = {
+    const session: BoostSession = {
         original,
         context,
         buffer,
@@ -312,7 +312,7 @@ async function createSession(original: HTMLAudioElement, url: string) {
         },
         onVolumeChange: () => configureGraph(session),
         onEnded: () => cleanupSession(session, true)
-    } satisfies BoostSession;
+    };
 
     configureGraph(session);
 
