@@ -1,0 +1,79 @@
+name: Diagnostic Runtime Without Profile Location
+
+on:
+    push:
+        branches:
+            - diag/runtime-without-profile-location
+        paths:
+            - .github/workflows/diag-runtime-without-profile-location.yml
+
+permissions:
+    contents: write
+
+env:
+    FORCE_COLOR: true
+    VENCORD_REMOTE: BreezeDelegate/Vencord
+
+jobs:
+    Build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout diagnostic runtime
+              uses: actions/checkout@v7
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v6
+
+            - name: Setup Node.js 24
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build desktop fork
+              run: pnpm build --standalone --disable-updater
+
+            - name: Verify diagnostic boundary
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  required=(patcher.js preload.js renderer.js renderer.css)
+                  for file in "${required[@]}"; do
+                      test -s "dist/$file"
+                  done
+                  grep -Fq 'VoiceMessageBooster' dist/renderer.js
+                  if grep -Fq 'ProfileLocationWidget' dist/renderer.js; then
+                      echo 'Diagnostic runtime unexpectedly contains ProfileLocationWidget.' >&2
+                      exit 1
+                  fi
+                  if ! head -n 5 dist/patcher.js | grep -Fq '// Updater Disabled: true'; then
+                      echo 'Built-in updater is not disabled.' >&2
+                      exit 1
+                  fi
+
+            - name: Publish diagnostic runtime to Breeze runtime tag
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  TAG=breeze-runtime
+                  BUILD_HASH=$(git rev-parse --short HEAD)
+                  gh release upload "$TAG" \
+                      dist/patcher.js \
+                      dist/preload.js \
+                      dist/renderer.js \
+                      dist/renderer.css \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --clobber
+                  RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
+                  gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+                      -f name="Breeze Runtime diagnostic $BUILD_HASH" \
+                      -f body="Diagnostic runtime built from f63d00c1: current upstream sync plus VoiceMessageBooster, with ProfileLocationWidget absent. Used to isolate the startup regression." \
+                      -F prerelease=true \
+                      -f make_latest=false >/dev/null
+                  FINAL_ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name] | sort | join(" ")')
+                  test "$FINAL_ASSETS" = "patcher.js preload.js renderer.css renderer.js"
