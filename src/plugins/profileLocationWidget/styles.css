@@ -1,61 +1,3 @@
-.vc-plw .leaflet-container {
-    overflow: hidden;
-    font-family: inherit;
-}
-
-.vc-plw .leaflet-pane,
-.vc-plw .leaflet-tile,
-.vc-plw .leaflet-marker-icon,
-.vc-plw .leaflet-marker-shadow,
-.vc-plw .leaflet-tile-container,
-.vc-plw .leaflet-map-pane svg,
-.vc-plw .leaflet-map-pane canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-}
-
-.vc-plw .leaflet-map-pane,
-.vc-plw .leaflet-tile-pane,
-.vc-plw .leaflet-overlay-pane,
-.vc-plw .leaflet-shadow-pane,
-.vc-plw .leaflet-marker-pane,
-.vc-plw .leaflet-tooltip-pane,
-.vc-plw .leaflet-popup-pane {
-    position: absolute;
-    inset: 0;
-}
-
-.vc-plw .leaflet-tile {
-    visibility: hidden;
-    width: 256px;
-    height: 256px;
-    user-select: none;
-}
-
-.vc-plw .leaflet-tile-loaded { visibility: inherit; }
-.vc-plw .leaflet-zoom-animated { transform-origin: 0 0; }
-.vc-plw .leaflet-interactive { cursor: pointer; }
-.vc-plw .leaflet-grab { cursor: grab; }
-.vc-plw .leaflet-dragging .leaflet-grab { cursor: grabbing; }
-
-.vc-plw .leaflet-control-container .leaflet-top,
-.vc-plw .leaflet-control-container .leaflet-bottom {
-    position: absolute;
-    z-index: 1000;
-    pointer-events: none;
-}
-
-.vc-plw .leaflet-control-container .leaflet-top { top: 0; }
-.vc-plw .leaflet-control-container .leaflet-bottom { bottom: 0; }
-.vc-plw .leaflet-control-container .leaflet-left { left: 0; }
-.vc-plw .leaflet-control-container .leaflet-right { right: 0; }
-
-.vc-plw .leaflet-control {
-    z-index: 3;
-    pointer-events: auto;
-}
-
 .vc-plw {
     box-sizing: border-box;
     width: 100%;
@@ -83,11 +25,40 @@
 
 .vc-plw-map {
     position: absolute;
-    inset: 0;
     z-index: 0;
+    inset: 0;
+    overflow: hidden;
     width: 100%;
     height: 100%;
     background: var(--background-base-lowest);
+}
+
+.vc-plw-tile-layer {
+    position: absolute;
+    inset: 0;
+}
+
+.vc-plw-tile {
+    position: absolute;
+    width: 256px;
+    max-width: none;
+    height: 256px;
+    pointer-events: none;
+    user-select: none;
+}
+
+.vc-plw-map-pin {
+    position: absolute;
+    z-index: 3;
+    top: 50%;
+    left: 50%;
+    width: 12px;
+    height: 12px;
+    border: 3px solid #fff;
+    border-radius: 999px;
+    background: var(--brand-500);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 48%);
+    transform: translate(-50%, -50%);
 }
 
 .vc-plw-map-shell::after {
@@ -99,34 +70,47 @@
     background: linear-gradient(180deg, rgb(0 0 0 / 16%), transparent 42%, rgb(0 0 0 / 28%));
 }
 
-
-.vc-plw .leaflet-control-zoom {
-    margin: 8px 0 0 8px;
-    overflow: hidden;
-    border: 0;
-    border-radius: 10px;
-    box-shadow: 0 4px 14px rgb(0 0 0 / 24%);
+.vc-plw-map-nav {
+    position: absolute;
+    z-index: 4;
+    top: 8px;
+    left: 8px;
+    display: grid;
+    grid-template-columns: repeat(3, 24px);
+    gap: 3px;
+    width: 78px;
 }
 
-.vc-plw .leaflet-control-zoom a {
-    width: 25px;
-    height: 25px;
-    border: 0;
+.vc-plw-nav-button {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid rgb(255 255 255 / 8%);
+    border-radius: 7px;
     color: #fff;
-    line-height: 25px;
-    background: rgb(20 21 24 / 82%);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    background: rgb(20 21 24 / 76%);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
 }
 
-.vc-plw .leaflet-control-attribution {
-    margin: 0 6px 5px 0;
+.vc-plw-nav-button:hover { background: rgb(35 36 40 / 92%); }
+
+.vc-plw-attribution {
+    position: absolute;
+    z-index: 4;
+    right: 6px;
+    bottom: 5px;
     padding: 2px 5px;
     border-radius: 6px;
-    color: rgb(255 255 255 / 65%);
+    color: rgb(255 255 255 / 72%);
     font-size: 8px;
+    text-decoration: none;
     background: rgb(20 21 24 / 58%);
 }
-
-.vc-plw .leaflet-control-attribution a { color: inherit; }
 
 .vc-plw-time,
 .vc-plw-place,
@@ -137,7 +121,7 @@
 
 .vc-plw-time {
     top: 8px;
-    left: 41px;
+    left: 94px;
     padding: 5px 8px;
     border: 1px solid rgb(255 255 255 / 8%);
     border-radius: 999px;
@@ -155,7 +139,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    max-width: calc(100% - 58px);
+    max-width: calc(100% - 90px);
     padding: 6px 9px;
     border: 1px solid rgb(255 255 255 / 8%);
     border-radius: 999px;
