@@ -22,6 +22,7 @@ concurrency:
 
 env:
     FORCE_COLOR: true
+    UPSTREAM_INSTALLER_REF: v1.4.0
     BUILD_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/tags/breeze-runtime
     INSTALLER_RELEASE_API: https://api.github.com/repos/BreezeDelegate/Vencord/releases/tags/installer
     INSTALLER_DOWNLOAD_BASE: https://github.com/BreezeDelegate/Vencord/releases/download/installer/
@@ -32,12 +33,20 @@ jobs:
         runs-on: windows-latest
 
         steps:
-            - name: Clone official installer source
+            - name: Clone known-good official installer source
               shell: pwsh
               run: |
                   $ErrorActionPreference = "Stop"
-                  git clone --depth 1 https://github.com/Vencord/Installer.git installer
-                  if ($LASTEXITCODE -ne 0) { throw "Unable to clone Vencord Installer" }
+                  git clone --depth 1 --branch $env:UPSTREAM_INSTALLER_REF https://github.com/Vencord/Installer.git installer
+                  if ($LASTEXITCODE -ne 0) { throw "Unable to clone Vencord Installer $env:UPSTREAM_INSTALLER_REF" }
+
+                  Push-Location installer
+                  $resolvedRef = git describe --tags --exact-match HEAD
+                  if ($LASTEXITCODE -ne 0 -or $resolvedRef.Trim() -ne $env:UPSTREAM_INSTALLER_REF) {
+                      throw "Expected Vencord Installer $env:UPSTREAM_INSTALLER_REF, got $resolvedRef"
+                  }
+                  Write-Host "Using known-good upstream installer: $resolvedRef"
+                  Pop-Location
 
             - name: Point installer exclusively to BreezeDelegate releases
               shell: pwsh
@@ -252,7 +261,7 @@ jobs:
 
                   gh api --method PATCH "repos/$repo/releases/$releaseId" `
                       -f name="Breeze Vencord Installer" `
-                      -f body="Installer for BreezeDelegate/Vencord. Runtime source: breeze-runtime. VoiceMessageBooster and ProfileLocationWidget are verified before every runtime publication." `
+                      -f body="Installer for BreezeDelegate/Vencord. Runtime source: breeze-runtime. Upstream installer pinned to v1.4.0 while Vencord issue #4607 affects v1.4.1. VoiceMessageBooster and ProfileLocationWidget are verified before every runtime publication." `
                       -F prerelease=false `
                       -f make_latest=true *> $null
                   if ($LASTEXITCODE -ne 0) {
