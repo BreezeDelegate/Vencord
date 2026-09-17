@@ -83,7 +83,7 @@ jobs:
 
                   $downloaderPath = Join-Path $PWD "github_downloader.go"
                   $downloader = Get-Content $downloaderPath -Raw
-                  $pattern = 'func installLatestBuilds\(\) \(retErr error\) \{\r?\n\tLog\.Debug\("Installing latest builds\.\.\."\)\r?\n'
+                  $pattern = 'func installLatestBuilds\(\) \(retErr error\) \{\r?\n'
                   $replacement = @'
                   func installLatestBuilds() (retErr error) {
                       Log.Debug("Installing latest builds...")
