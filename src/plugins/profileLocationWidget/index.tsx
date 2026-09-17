@@ -6,10 +6,13 @@
 
 import { Devs } from "@utils/constants";
 import definePlugin from "@utils/types";
+import L from "leaflet";
+
+const leafletVersion = L.version;
 
 export default definePlugin({
     name: "ProfileLocationWidget",
-    description: "Diagnostic shell for the local-only profile location widget.",
+    description: `Diagnostic shell loading Leaflet ${leafletVersion} without any profile patch.`,
     authors: [Devs.BreezeDelegate],
     tags: ["Appearance", "Utility"],
     enabledByDefault: false
