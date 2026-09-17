@@ -1,0 +1,105 @@
+name: Candidate Profile Location No Leaflet
+
+on:
+    push:
+        branches:
+            - fix/profile-location-no-leaflet
+        paths:
+            - .github/workflows/candidate-profile-location-no-leaflet.yml
+            - src/plugins/profileLocationWidget/**
+            - scripts/profileLocationNoLeaflet.test.mjs
+            - package.json
+            - pnpm-lock.yaml
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+env:
+    FORCE_COLOR: true
+    VENCORD_REMOTE: BreezeDelegate/Vencord
+
+jobs:
+    Build:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout candidate
+              uses: actions/checkout@v7
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v6
+
+            - name: Setup Node.js 24
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Run startup regression test
+              run: pnpm testProfileLocationWidget
+
+            - name: Build desktop candidate
+              run: pnpm build --standalone --disable-updater
+
+            - name: Verify candidate runtime
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  required=(patcher.js preload.js renderer.js renderer.css)
+                  for file in "${required[@]}"; do
+                      test -s "dist/$file"
+                  done
+                  grep -Fq 'ProfileLocationWidget' dist/renderer.js
+                  grep -Fq 'ProfileLocationWidget.locations.v1' dist/renderer.js
+                  grep -Fq 'nominatim.openstreetmap.org/search' dist/renderer.js
+                  grep -Fq 'tile.openstreetmap.org' dist/renderer.js
+                  grep -Fq 'VoiceMessageBooster' dist/renderer.js
+                  grep -Fq 'BreezeDelegate/Vencord' dist/renderer.js
+                  if grep -R -n -E 'from[[:space:]]+["'"'"']leaflet["'"'"']' src/plugins/profileLocationWidget; then
+                      echo 'Leaflet import returned to ProfileLocationWidget.' >&2
+                      exit 1
+                  fi
+                  if ! head -n 5 dist/patcher.js | grep -Fq '// Updater Disabled: true'; then
+                      echo 'The built-in Vencord updater is not disabled.' >&2
+                      exit 1
+                  fi
+
+            - name: Publish candidate runtime
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  TAG=breeze-runtime
+                  REQUIRED=(patcher.js preload.js renderer.js renderer.css)
+
+                  gh release upload "$TAG" \
+                      dist/patcher.js \
+                      dist/preload.js \
+                      dist/renderer.js \
+                      dist/renderer.css \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --clobber
+
+                  mapfile -t PUBLISHED < <(gh release view "$TAG" \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --json assets \
+                      --jq '.assets[].name')
+
+                  for required in "${REQUIRED[@]}"; do
+                      if ! printf '%s\n' "${PUBLISHED[@]}" | grep -Fxq "$required"; then
+                          echo "Candidate publication is incomplete: missing $required" >&2
+                          exit 1
+                      fi
+                  done
+
+                  RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
+                  gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+                      -f name="Breeze Runtime candidate profile-location-no-leaflet" \
+                      -f body="Candidate runtime: full ProfileLocationWidget restored with a lightweight OpenStreetMap tile renderer and no Leaflet module evaluation. Includes location search, local persistence, local time, map navigation and VoiceMessageBooster." \
+                      -F prerelease=true \
+                      -f make_latest=false >/dev/null
