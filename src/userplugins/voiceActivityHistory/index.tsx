@@ -12,16 +12,11 @@ import { Microphone } from "@components/Icons";
 import definePlugin from "@utils/types";
 import { findComponentByCodeLazy } from "@webpack";
 import { ApplicationStreamingStore, ApplicationStreamPreviewStore, ChannelStore, Popout, PresenceStore, SelectedGuildStore, useEffect, useRef, UserStore, useState, useStateFromStores, VoiceStateStore } from "@webpack/common";
-import type { PropsWithChildren } from "react";
 
-import { diffVoice, snapshot, VoiceEvent, VoiceEventKind, VoiceSnapshot, VoiceUpdate } from "./model";
+import { compactEvents, diffVoice, snapshot, VoiceEvent, VoiceEventKind, VoiceSnapshot, VoiceUpdate } from "./model";
 
 const HeaderBarIcon = findComponentByCodeLazy(".HEADER_BAR_BADGE_BOTTOM,", 'position:"bottom"');
 const KEY = "BreezeVoiceActivityHistory.v1";
-const MAX_EVENTS = 1500;
-const MAX_AGE = 30 * 24 * 60 * 60 * 1000;
-const MAX_PREVIEW_AGE = 24 * 60 * 60 * 1000;
-const MAX_IMAGES = 20;
 const CAPTURE_INTERVAL = 2 * 60 * 1000;
 const capturedAt = new Map<string, number>();
 const listeners = new Set<() => void>();
@@ -62,15 +57,20 @@ function subscribe(listener: () => void) {
 }
 
 function filteredEvents(guildId: string) {
-    const cutoff = Date.now() - MAX_AGE;
-    return (history[guildId] ?? []).filter(item => item.at >= cutoff).slice(-MAX_EVENTS).map(item => {
-        if (item.preview && item.at < Date.now() - MAX_PREVIEW_AGE) {
-            const result: VoiceEvent = { ...item };
-            delete result.preview;
-            return result;
+    return compactEvents(history[guildId] ?? []);
+}
+
+function compactHistory() {
+    let changed = false;
+    for (const guildId of Object.keys(history)) {
+        const old = history[guildId];
+        const clean = filteredEvents(guildId);
+        if (old.length !== clean.length || old.some((item, i) => Boolean(item.preview) !== Boolean(clean[i]?.preview))) {
+            history[guildId] = clean;
+            changed = true;
         }
-        return item;
-    });
+    }
+    if (changed) scheduleSave();
 }
 
 function flush() {
@@ -78,7 +78,7 @@ function flush() {
     saveTimer = undefined;
     if (!ready) return;
     const state: Saved = { tracked, history };
-    void DataStore.set(KEY, state);
+    void DataStore.set(KEY, state).catch(error => console.error("[VoiceActivityHistory] Local save failed", error));
 }
 
 function scheduleSave() {
@@ -89,13 +89,7 @@ function scheduleSave() {
 
 function append(event: VoiceEvent) {
     const { guildId } = event;
-    history[guildId] = [...filteredEvents(guildId), event].slice(-MAX_EVENTS);
-    let images = 0;
-    for (const entry of history[guildId].slice().reverse()) {
-        if (!entry.preview) continue;
-        images++;
-        if (images > MAX_IMAGES) delete entry.preview;
-    }
+    history[guildId] = compactEvents([...filteredEvents(guildId), event]);
     scheduleSave();
     notify();
 }
@@ -121,7 +115,7 @@ async function hydrate() {
         if (saved?.history && typeof saved.history === "object") {
             for (const [guildId, items] of Object.entries(saved.history)) {
                 if (Array.isArray(items)) {
-                    history[guildId] = items.filter(item => item && typeof item.at === "number" && typeof item.kind === "string").slice(-MAX_EVENTS);
+                    history[guildId] = compactEvents(items.filter(item => item && typeof item.at === "number" && typeof item.kind === "string"));
                 }
             }
         }
@@ -130,6 +124,7 @@ async function hydrate() {
         console.error("[VoiceActivityHistory] Failed to load local data", error);
     } finally {
         ready = active;
+        if (ready) compactHistory();
         notify();
     }
 }
@@ -170,6 +165,7 @@ function handleVoiceUpdates(states: StateChange[]) {
         const after = snapshot(state);
         for (const event of diffVoice(guildId, state.userId, before, after)) {
             append(event);
+            if (event.kind === "stream-stop") capturedAt.delete(key);
             if (event.kind === "stream-start" && event.channelId) {
                 setTimeout(() => void capturePreview(guildId, state.userId, event.channelId!), 15000);
             }
@@ -227,6 +223,7 @@ async function capturePreview(guildId: string, userId: string, channelId: string
 
 function checkGames() {
     if (!ready) return;
+    compactHistory();
     for (const [key, state] of voiceStates) {
         if (!state.channelId) continue;
         const split = key.indexOf(":");
@@ -240,7 +237,7 @@ function checkGames() {
         const game = activities.find(activity => activity.type === 0 && activity.name)?.name ?? "";
         const oldGame = games.get(key);
         games.set(key, game);
-        if (oldGame !== undefined && game && game !== oldGame) {
+        if (game && game !== oldGame) {
             append({ id: Date.now() + ":" + userId + ":game", at: Date.now(), guildId, userId, kind: "game", channelId: state.channelId, detail: game.slice(0, 100) });
         }
     }
@@ -269,13 +266,13 @@ function VoiceHistoryPanel({ guildId, close }: { guildId: string; close: () => v
         <div className="vc-vah-panel">
             <div className="vc-vah-head">
                 <strong>Historique vocal</strong>
-                <button type="button" onClick={close} aria-label="Fermer" className="vc-vah-close">×</button>
+                <button type="button" onClick={close} className="vc-vah-close">Fermer</button>
             </div>
             {!ready ? <div className="vc-vah-empty">Chargement...</div>
                 : !enabled ? (
                     <div className="vc-vah-onboarding">
                         <strong>Traquer ce serveur</strong>
-                        <p>Conserver localement les entrées, sorties, déplacements, micros, streams et jeux détectés pendant que Discord est ouvert. Les aperçus de streams visibles dans Discord sont enregistrés temporairement en miniatures. Aucune donnée n'est envoyée à un serveur externe.</p>
+                        <p>Conserver localement les entrées, sorties, déplacements, micros, streams et jeux détectés pendant que Discord est ouvert. Les aperçus de streams visibles dans Discord sont enregistrés temporairement en miniatures. Aucun historique n'est envoyé hors de cet appareil.</p>
                         <button className="vc-vah-primary" type="button" onClick={() => setTracking(guildId, true)}>Activer le suivi</button>
                     </div>
                 ) : (
@@ -361,18 +358,15 @@ export default definePlugin({
     patches: [{
         find: '?"BACK_FORWARD_NAVIGATION":',
         replacement: {
-            match: /(trailing:.{0,50}?)\i\.Fragment,(?=\{children:\[)/,
-            replace: "$1$self.TrailingWrapper,"
+            match: /(trailing:.{0,180}?\{children:\[)/,
+            replace: "$1$self.renderHeaderButton(),"
         }
     }],
-    TrailingWrapper({ children }: PropsWithChildren) {
+    renderHeaderButton() {
         return (
-            <>
-                <ErrorBoundary noop key="vc-voice-history">
-                    <VoiceHistoryButton />
-                </ErrorBoundary>
-                {children}
-            </>
+            <ErrorBoundary noop key="vc-voice-history">
+                <VoiceHistoryButton />
+            </ErrorBoundary>
         );
     },
     flux: {

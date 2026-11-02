@@ -74,3 +74,25 @@ export function diffVoice(guildId: string, userId: string, previous: VoiceSnapsh
     }
     return result;
 }
+
+
+/** Applies bounded local retention without mutating previously rendered events. */
+export function compactEvents(entries: VoiceEvent[], now = Date.now(), maxEvents = 1500, maxImages = 20): VoiceEvent[] {
+    const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+    const previewCutoff = now - 24 * 60 * 60 * 1000;
+    const result = entries
+        .filter(event => Number.isFinite(event?.at) && event.at >= cutoff)
+        .slice(-maxEvents)
+        .map(event => {
+            const copy = { ...event };
+            if (copy.preview && copy.at < previewCutoff) delete copy.preview;
+            return copy;
+        });
+    let images = 0;
+    for (const event of result.slice().reverse()) {
+        if (!event.preview) continue;
+        images++;
+        if (images > maxImages) delete event.preview;
+    }
+    return result;
+}

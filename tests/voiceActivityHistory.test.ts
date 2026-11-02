@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { diffVoice, snapshot } from "../src/userplugins/voiceActivityHistory/model";
+import { compactEvents, diffVoice, snapshot } from "../src/userplugins/voiceActivityHistory/model";
 
 const base = { channelId: null, mute: false, deaf: false, stream: false, video: false };
 
@@ -46,4 +46,35 @@ test("disabled and startup baseline are handled without synthetic history", () =
     const baseline = snapshot({ channelId: "voice1", selfMute: true });
     assert.ok(baseline.channelId);
     assert.equal(diffVoice("g", "u", baseline, baseline).length, 0);
+});
+
+test("retention keeps recent events, expires old previews and limits stored images", () => {
+    const now = Date.now();
+    const events = Array.from({ length: 35 }, (_, index) => ({
+        id: String(index),
+        at: now - (index === 0 ? 25 * 60 * 60 * 1000 : index * 1000),
+        guildId: "g",
+        userId: "u",
+        kind: "stream-preview" as const,
+        preview: "data:image/webp;base64,AAAA"
+    }));
+    const kept = compactEvents(events, now, 1500, 20);
+    assert.equal(kept.length, 35);
+    assert.equal(kept.filter(e => e.preview).length, 20);
+    assert.equal(kept[0].preview, undefined);
+    assert.ok(events[0].preview, "original events must not be mutated");
+    assert.equal(compactEvents([{ ...events[1], at: now - 31 * 24 * 60 * 60 * 1000 }], now).length, 0);
+    assert.equal(compactEvents(events, now, 3).length, 3);
+});
+
+test("both toolbar patch orders preserve voice and toolbox buttons", () => {
+    const original = "trailing:a.Fragment,{children:[icon1,icon2]}";
+    const voicePattern = /(trailing:.{0,180}?\{children:\[)/;
+    const toolboxPattern = /(trailing:.{0,50}?)a\.Fragment,(?=\{children:\[)/;
+    const voice = (code: string) => code.replace(voicePattern, "$1VoiceActivityHistory.renderHeaderButton(),");
+    const toolbox = (code: string) => code.replace(toolboxPattern, "$1VencordToolbox.TrailingWrapper,");
+    for (const patched of [voice(toolbox(original)), toolbox(voice(original))]) {
+        assert.match(patched, /VoiceActivityHistory\.renderHeaderButton/);
+        assert.match(patched, /VencordToolbox\.TrailingWrapper/);
+    }
 });
