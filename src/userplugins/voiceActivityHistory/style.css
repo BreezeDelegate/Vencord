@@ -113,8 +113,23 @@
     font-size: 12px;
 }
 
-.vc-vah-foot button:hover, .vc-vah-close:hover { color: var(--interactive-hover); }
+.vc-vah-foot button:hover,
+.vc-vah-close:hover {
+    color: var(--interactive-hover);
+}
 
-.vc-vah-note { margin: 0; padding: 0 16px 14px; font-size: 11px; }
+.vc-vah-note {
+    margin: 0;
+    padding: 0 16px 14px;
+    font-size: 11px;
+}
 
-.vc-vah-preview { display: block; max-width: 100%; width: 240px; max-height: 135px; object-fit: contain; margin-top: 7px; border-radius: 4px; }
+.vc-vah-preview {
+    display: block;
+    max-width: 100%;
+    width: 240px;
+    max-height: 135px;
+    object-fit: contain;
+    margin-top: 7px;
+    border-radius: 4px;
+}
