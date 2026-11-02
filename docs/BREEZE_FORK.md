@@ -91,3 +91,9 @@ Keep the currently installed Discord/PTB runtime unchanged during development. B
 - Linux preflight: same 7 tests and type check passed, build succeeded.
 - Not live-verified: on-server Discord context menus, toolbar injection in a logged-in client, stream preview CORS availability and actual guild voice events. Do not promote to the installed runtime or public installer until these paths are tested in a real Discord session.
 - No GitHub-hosted runners were used. The fork's existing main-only GitHub Actions were not triggered by the feature-branch push.
+
+## Discord Stable startup regression (2026-11-03)
+
+On the owner's Discord Stable 1.0.9266, runtime `8b56178` started its main patcher but did not show Vencord's Settings/Plugins/Themes UI. A real A/B test of the same logged-in desktop client confirmed that the older runtime `9acb948` showed all Vencord menus. The feature branch had been based on `479a50f9`, which predated the no-Leaflet ProfileLocationWidget startup fix included in `9acb948`. Restoring that previously working implementation and its regression test produced a Windows candidate that booted successfully and displayed the Vencord menus again.
+
+Windows live checks: Discord Stable process restart, UI Automation click on User Settings, and presence of `Vencord`, `Plugins`, `Vencord Settings`, and `Themes`. The voice history model and toolbar coexistence unit tests passed. Real voice participants and every plugin action were not exercised in this check; do not treat menu visibility as proof of those paths.

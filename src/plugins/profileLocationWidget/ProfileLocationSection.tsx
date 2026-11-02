@@ -4,13 +4,42 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { useEffect, useMemo, useRef, useState } from "@webpack/common";
-import L, { CircleMarker, Map as LeafletMap } from "leaflet";
+import { useEffect, useMemo, useState } from "@webpack/common";
 
 import { searchLocations } from "./geocode";
 import { formatLocationClock } from "./model";
 import { getLocation, removeLocation, saveLocation, subscribeLocations } from "./store";
 import type { GeocodeCandidate, SavedLocation } from "./types";
+
+const TILE_SIZE = 256;
+const MAX_MERCATOR_LAT = 85.05112878;
+
+function clamp(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function tileCount(zoom: number) {
+    return 2 ** zoom;
+}
+
+function longitudeToTileX(longitude: number, zoom: number) {
+    return (longitude + 180) / 360 * tileCount(zoom);
+}
+
+function latitudeToTileY(latitude: number, zoom: number) {
+    const bounded = clamp(latitude, -MAX_MERCATOR_LAT, MAX_MERCATOR_LAT);
+    const radians = bounded * Math.PI / 180;
+    return (1 - Math.asinh(Math.tan(radians)) / Math.PI) / 2 * tileCount(zoom);
+}
+
+function tileXToLongitude(x: number, zoom: number) {
+    return x / tileCount(zoom) * 360 - 180;
+}
+
+function tileYToLatitude(y: number, zoom: number) {
+    const n = Math.PI - 2 * Math.PI * y / tileCount(zoom);
+    return 180 / Math.PI * Math.atan(Math.sinh(n));
+}
 
 function LocationPinIcon({ size = 16 }: { size?: number; }) {
     return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M20 10c0 5-5.5 11-8 12.5C9.5 21 4 15 4 10a8 8 0 1 1 16 0Z" stroke="currentColor" strokeWidth="2" /><circle cx="12" cy="10" r="2.5" stroke="currentColor" strokeWidth="2" /></svg>;
@@ -43,46 +72,97 @@ function useLocationClock(timezone: string | undefined) {
     return timezone ? formatLocationClock(now, timezone) : "";
 }
 
-function LocationMap({ location, compact }: { location: SavedLocation; compact: boolean; }) {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef<LeafletMap | null>(null);
-    const markerRef = useRef<CircleMarker | null>(null);
+type MapView = Pick<SavedLocation, "lat" | "lng" | "zoom">;
+
+function LocationMap({ location }: { location: SavedLocation; }) {
+    const [view, setView] = useState<MapView>(() => ({
+        lat: location.lat,
+        lng: location.lng,
+        zoom: location.zoom
+    }));
 
     useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
-        const map = L.map(container, {
-            attributionControl: false,
-            zoomControl: true,
-            scrollWheelZoom: false,
-            dragging: true,
-            doubleClickZoom: true,
-            boxZoom: false,
-            keyboard: false
-        });
-        mapRef.current = map;
-        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
-        L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
-        markerRef.current = L.circleMarker([location.lat, location.lng], { radius: compact ? 5 : 6, weight: 2, opacity: 1, fillOpacity: 0.9 }).addTo(map);
-        map.setView([location.lat, location.lng], location.zoom, { animate: false });
-        const frame = window.requestAnimationFrame(() => map.invalidateSize(false));
-        return () => {
-            window.cancelAnimationFrame(frame);
-            markerRef.current = null;
-            mapRef.current = null;
-            map.remove();
-        };
-    }, [compact]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-        const marker = markerRef.current;
-        if (!map || !marker) return;
-        marker.setLatLng([location.lat, location.lng]);
-        map.flyTo([location.lat, location.lng], location.zoom, { duration: 0.35 });
+        setView({ lat: location.lat, lng: location.lng, zoom: location.zoom });
     }, [location.lat, location.lng, location.zoom]);
 
-    return <div ref={containerRef} className="vc-plw-map" />;
+    const tiles = useMemo(() => {
+        const x = longitudeToTileX(view.lng, view.zoom);
+        const y = latitudeToTileY(view.lat, view.zoom);
+        const baseX = Math.floor(x);
+        const baseY = Math.floor(y);
+        const fractionX = x - baseX;
+        const fractionY = y - baseY;
+        const count = tileCount(view.zoom);
+        const result: Array<{ key: string; x: number; y: number; left: number; top: number; }> = [];
+
+        for (let dy = -1; dy <= 1; dy++) {
+            const rawY = baseY + dy;
+            if (rawY < 0 || rawY >= count) continue;
+
+            for (let dx = -2; dx <= 2; dx++) {
+                const rawX = baseX + dx;
+                const wrappedX = ((rawX % count) + count) % count;
+                result.push({
+                    key: `${view.zoom}:${rawX}:${rawY}`,
+                    x: wrappedX,
+                    y: rawY,
+                    left: (dx - fractionX) * TILE_SIZE,
+                    top: (dy - fractionY) * TILE_SIZE
+                });
+            }
+        }
+
+        return result;
+    }, [view.lat, view.lng, view.zoom]);
+
+    function pan(deltaX: number, deltaY: number) {
+        setView(current => {
+            const x = longitudeToTileX(current.lng, current.zoom) + deltaX;
+            const y = clamp(latitudeToTileY(current.lat, current.zoom) + deltaY, 0, tileCount(current.zoom));
+            return {
+                ...current,
+                lat: tileYToLatitude(y, current.zoom),
+                lng: tileXToLongitude(x, current.zoom)
+            };
+        });
+    }
+
+    function zoom(delta: number) {
+        setView(current => ({ ...current, zoom: clamp(current.zoom + delta, 3, 17) }));
+    }
+
+    return <div className="vc-plw-map" role="img" aria-label={`Map centered near ${location.label}`}>
+        <div className="vc-plw-tile-layer">
+            {tiles.map(tile => <img
+                aria-hidden="true"
+                className="vc-plw-tile"
+                draggable={false}
+                key={tile.key}
+                src={`https://tile.openstreetmap.org/${view.zoom}/${tile.x}/${tile.y}.png`}
+                style={{
+                    left: `calc(50% + ${tile.left}px)`,
+                    top: `calc(50% + ${tile.top}px)`
+                }}
+            />)}
+        </div>
+        <span className="vc-plw-map-pin" aria-hidden="true" />
+        <div className="vc-plw-map-nav" aria-label="Map navigation">
+            <button type="button" className="vc-plw-nav-button" aria-label="Zoom in" onClick={() => zoom(1)}>+</button>
+            <button type="button" className="vc-plw-nav-button" aria-label="Zoom out" onClick={() => zoom(-1)}>−</button>
+            <button type="button" className="vc-plw-nav-button" aria-label="Pan left" onClick={() => pan(-0.45, 0)}>←</button>
+            <button type="button" className="vc-plw-nav-button" aria-label="Pan up" onClick={() => pan(0, -0.45)}>↑</button>
+            <button type="button" className="vc-plw-nav-button" aria-label="Pan down" onClick={() => pan(0, 0.45)}>↓</button>
+            <button type="button" className="vc-plw-nav-button" aria-label="Pan right" onClick={() => pan(0.45, 0)}>→</button>
+        </div>
+        <a
+            className="vc-plw-attribution"
+            href="https://www.openstreetmap.org/copyright"
+            onClick={event => {
+                event.preventDefault();
+                VencordNative.native.openExternal("https://www.openstreetmap.org/copyright");
+            }}
+        >© OpenStreetMap</a>
+    </div>;
 }
 
 function SearchEditor({ userId, onClose }: { userId: string; onClose(): void; }) {
@@ -147,5 +227,5 @@ export function ProfileLocationSection({ userId, isSideBar }: { userId: string; 
 
     if (!location) return <button type="button" className={`vc-plw vc-plw-empty ${isSideBar ? "vc-plw-sidebar" : ""}`} onClick={() => setEditing(true)}><span className="vc-plw-empty-icon"><LocationPinIcon size={17} /></span><span className="vc-plw-empty-copy"><strong>Set location</strong><span>Add a place to this profile</span></span><span className="vc-plw-empty-plus">+</span></button>;
 
-    return <section className={`vc-plw ${isSideBar ? "vc-plw-sidebar" : ""}`}><div className="vc-plw-map-shell"><LocationMap location={location} compact={isSideBar} /><div className="vc-plw-time">{clock}</div><div className="vc-plw-place"><LocationPinIcon size={13} /><span>{location.label}</span></div><div className="vc-plw-map-actions"><button type="button" className="vc-plw-map-action" aria-label="Edit saved location" onClick={() => setEditing(true)}><EditIcon /></button>{osmUrl && <button type="button" className="vc-plw-map-action" aria-label="Open in OpenStreetMap" onClick={() => VencordNative.native.openExternal(osmUrl)}><ExternalIcon /></button>}</div></div></section>;
+    return <section className={`vc-plw ${isSideBar ? "vc-plw-sidebar" : ""}`}><div className="vc-plw-map-shell"><LocationMap location={location} /><div className="vc-plw-time">{clock}</div><div className="vc-plw-place"><LocationPinIcon size={13} /><span>{location.label}</span></div><div className="vc-plw-map-actions"><button type="button" className="vc-plw-map-action" aria-label="Edit saved location" onClick={() => setEditing(true)}><EditIcon /></button>{osmUrl && <button type="button" className="vc-plw-map-action" aria-label="Open in OpenStreetMap" onClick={() => VencordNative.native.openExternal(osmUrl)}><ExternalIcon /></button>}</div></div></section>;
 }
