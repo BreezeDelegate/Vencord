@@ -117,7 +117,7 @@ function UserPermissionsComponent({ guild, guildMember, closePopout }: { guild: 
             for (const { permissions, colorString, position, name } of userRoles) {
                 if ((permissions & bit) === bit) {
                     userPermissions.push({
-                        permission: guildPermissionSpecMap[String(bit)].title,
+                        permission: guildPermissionSpecMap?.[String(bit)]?.title ?? String(bit),
                         roleName: name,
                         roleColor: colorString || "var(--primary-300)",
                         rolePosition: position
@@ -168,7 +168,7 @@ function UserPermissionsComponent({ guild, guildMember, closePopout }: { guild: 
                             tabIndex={0}
                             onClick={() => {
                                 closePopout();
-                                openRolesAndUsersPermissionsModal(rolePermissions, guild, guildMember.nick || UserStore.getUser(guildMember.userId).username);
+                                openRolesAndUsersPermissionsModal(rolePermissions, guild, guildMember.nick || UserStore.getUser(guildMember.userId)?.username || "Unknown Member");
                             }}
                         >
                             <svg

@@ -35,7 +35,7 @@ type GetRoleIconData = (role: Role, size: number) => { customIconSrc?: string; u
 const getRoleIconData: GetRoleIconData = findByCodeLazy("convertSurrogateToName", "customIconSrc", "unicodeEmoji");
 
 function getRoleIconSrc(role: Role) {
-    const icon = getRoleIconData(role, 20);
+    const icon = getRoleIconData?.(role, 20);
     if (!icon) return;
 
     const { customIconSrc, unicodeEmoji } = icon;
@@ -49,15 +49,13 @@ function RolesAndUsersPermissionsComponent({ permissions, guild, modalProps, hea
         [GuildMemberStore],
         () => GuildMemberStore.getMemberIds(guild.id),
         null,
-        (old, current) => old.length === current.length
+        (old, current) => (old?.length ?? 0) === (current?.length ?? 0)
     );
 
-    useEffect(() => {
-        permissions.sort((a, b) => a.type - b.type);
-    }, [permissions]);
+    const sortedPermissions = useMemo(() => [...permissions].sort((a, b) => a.type - b.type), [permissions]);
 
     useEffect(() => {
-        const usersToRequest = permissions
+        const usersToRequest = sortedPermissions
             .filter(p => p.type === PermissionOverwriteType.MEMBER && !GuildMemberStore.isMember(guild.id, p.id!))
             .map(({ id }) => id);
 
@@ -69,9 +67,9 @@ function RolesAndUsersPermissionsComponent({ permissions, guild, modalProps, hea
     }, []);
 
     const [selectedItemIndex, selectItem] = useState(0);
-    const selectedItem = permissions[selectedItemIndex];
+    const selectedItem = sortedPermissions[selectedItemIndex];
 
-    const roles = GuildRoleStore.getRolesSnapshot(guild.id);
+    const roles = GuildRoleStore.getRolesSnapshot(guild.id) ?? {};
 
     return (
         <Modal
@@ -88,7 +86,7 @@ function RolesAndUsersPermissionsComponent({ permissions, guild, modalProps, hea
             {selectedItem && (
                 <div className={cl("modal-container")}>
                     <ScrollerThin className={cl("modal-list")} orientation="auto">
-                        {permissions.map((permission, index) => {
+                        {sortedPermissions.map((permission, index) => {
                             const user: User | undefined = UserStore.getUser(permission.id ?? "");
                             const role: Role | undefined = roles[permission.id ?? ""];
                             const roleIconSrc = role != null ? getRoleIconSrc(role) : undefined;
@@ -185,16 +183,18 @@ function RolesAndUsersPermissionsComponent({ permissions, guild, modalProps, hea
                                         {overrideType === "allowed" && <PermissionAllowedIcon />}
                                         {overrideType === "denied" && <PermissionDeniedIcon />}
                                     </div>
-                                    <Text variant="text-md/normal">{guildPermissionSpecMap[String(bit)].title}</Text>
+                                    <Text variant="text-md/normal">{guildPermissionSpecMap?.[String(bit)]?.title ?? String(bit)}</Text>
 
-                                    <Tooltip text={
-                                        (() => {
-                                            const { description } = guildPermissionSpecMap[String(bit)];
-                                            return typeof description === "function" ? i18n.intl.format(description, {}) : description;
-                                        })()
-                                    }>
-                                        {props => <InfoIcon {...props} />}
-                                    </Tooltip>
+                                    {guildPermissionSpecMap?.[String(bit)]?.description && (
+                                        <Tooltip text={
+                                            (() => {
+                                                const { description } = guildPermissionSpecMap[String(bit)];
+                                                return typeof description === "function" ? i18n.intl.format(description, {}) : description;
+                                            })()
+                                        }>
+                                            {props => <InfoIcon {...props} />}
+                                        </Tooltip>
+                                    )}
                                 </div>
                             );
                         })}
@@ -216,7 +216,7 @@ function ViewAsRoleIcon() {
 function RoleContextMenu({ guild, roleId, onClose }: { guild: Guild; roleId: string; onClose: () => void; }) {
     const popoutRef = useRef(null);
     const role = GuildRoleStore.getRole(guild.id, roleId);
-    const { before, after } = buildExtraRoleContextMenuItems(role, guild, popoutRef);
+    const { before, after } = role ? buildExtraRoleContextMenuItems(role, guild, popoutRef) : { before: null, after: null };
 
     return (
         <Menu.Menu

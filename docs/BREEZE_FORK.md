@@ -65,3 +65,18 @@ pnpm build --standalone --disable-updater
 ```
 
 The Windows graphical installer itself is intentionally built by the Windows GitHub Actions runner rather than the Linux VPS.
+
+## VoiceActivityHistory (local, opt-in)
+
+The fork adds a Discord-style voice-history icon in the channel header. Its popout requires an explicit **Activer le suivi** action for each guild. The plugin stores data in the local Vencord DataStore, not an external service. It records voice joins, departures, channel moves, mute/deafen state transitions, stream/camera transitions, and observed game changes while Discord runs. Filters separate movement, audio, stream and games.
+
+- Nothing is recorded before guild-level opt-in. Tracking can be stopped, and local history deleted, per guild.
+- Each guild retains at most 1,500 events within 30 days.
+- Where Discord's own stream preview is available, the client may capture a compressed 480x270 WebP thumbnail every two minutes during an active stream. Up to 20 images per guild are retained for 24 hours. No audio/video recordings are created.
+- A screenshot is not guaranteed: the client may not receive preview access, Discord might not generate a preview, or image retrieval/canvas conversion may fail.
+- There is no retrospective Discord history, no monitoring when the client is closed, and no remote sync.
+- ProfileLocationWidget remains outside the scope of this change.
+
+### Validating a new Windows build
+
+Keep the currently installed Discord/PTB runtime unchanged during development. Build and test the fork in an isolated directory, then check the actual Discord UI and runtime patch compatibility before updating the release assets. Source compile and unit tests alone do not validate Discord UI injection.

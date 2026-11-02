@@ -60,7 +60,7 @@ export const settings = definePluginSettings({
 });
 
 function MenuItem(guildId: string, { id, type, withIcon }: { id?: string, type?: MenuItemParentType, withIcon?: boolean; }) {
-    if (type === MenuItemParentType.User && !GuildMemberStore.isMember(guildId, id!)) return null;
+    if (type === MenuItemParentType.User && (!id || !GuildMemberStore.isMember(guildId, id))) return null;
 
     return (
         <Menu.MenuItem
@@ -69,11 +69,13 @@ function MenuItem(guildId: string, { id, type, withIcon }: { id?: string, type?:
             leadingAccessory={withIcon ? { type: "icon", icon: SafetyIcon } : undefined}
             action={() => {
                 const guild = GuildStore.getGuild(guildId);
+                if (!guild) return;
 
                 const { permissions, header } = match(type)
                     .returnType<{ permissions: RoleOrUserPermission[], header: string; }>()
                     .with(MenuItemParentType.User, () => {
-                        const member = GuildMemberStore.getMember(guildId, id!)!;
+                        const member = GuildMemberStore.getMember(guildId, id!);
+                        if (!member) return { permissions: [], header: "Unknown Member" };
 
                         const permissions: RoleOrUserPermission[] = getSortedRolesForMember(guild, member)
                             .map(role => ({
@@ -90,13 +92,15 @@ function MenuItem(guildId: string, { id, type, withIcon }: { id?: string, type?:
 
                         return {
                             permissions,
-                            header: member.nick ?? UserStore.getUser(member.userId).username
+                            header: member.nick ?? UserStore.getUser(member.userId)?.username ?? "Unknown Member"
                         };
                     })
                     .with(MenuItemParentType.Channel, () => {
                         const channel = ChannelStore.getChannel(id!);
 
-                        const permissions = sortPermissionOverwrites(Object.values(channel.permissionOverwrites).map(({ id, allow, deny, type }) => ({
+                        if (!channel) return { permissions: [], header: "Unknown Channel" };
+
+                        const permissions = sortPermissionOverwrites(Object.values(channel.permissionOverwrites ?? {}).map(({ id, allow, deny, type }) => ({
                             type,
                             id,
                             overwriteAllow: allow,
@@ -109,7 +113,7 @@ function MenuItem(guildId: string, { id, type, withIcon }: { id?: string, type?:
                         };
                     })
                     .otherwise(() => {
-                        const permissions = GuildRoleStore.getSortedRoles(guild.id).map(role => ({
+                        const permissions = (GuildRoleStore.getSortedRoles(guild.id) ?? []).map(role => ({
                             type: PermissionOverwriteType.ROLE,
                             ...role
                         }));
@@ -130,7 +134,7 @@ function makeContextMenuPatch(childId: string | string[], type?: MenuItemParentT
     return (children, props) => {
         if (
             !props ||
-            (type === MenuItemParentType.User && !props.user) ||
+            (type === MenuItemParentType.User && (!props.user || !props.guildId)) ||
             (type === MenuItemParentType.Guild && !props.guild) ||
             (type === MenuItemParentType.Channel && (!props.channel || !props.guild))
         ) {

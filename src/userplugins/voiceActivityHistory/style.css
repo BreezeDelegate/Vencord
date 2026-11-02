@@ -1,0 +1,120 @@
+.vc-vah-panel {
+    width: min(420px, calc(100vw - 32px));
+    max-height: min(650px, calc(100vh - 84px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 8px;
+    color: var(--text-default);
+    background: var(--background-base-lowest);
+    box-shadow: var(--elevation-high);
+}
+
+.vc-vah-head, .vc-vah-tools, .vc-vah-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+}
+
+.vc-vah-head {
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 16px;
+}
+
+.vc-vah-close, .vc-vah-foot button {
+    border: 0;
+    border-radius: 4px;
+    color: var(--interactive-normal);
+    background: transparent;
+    cursor: pointer;
+}
+
+.vc-vah-close {
+    padding: 4px 8px;
+    font-size: 21px;
+}
+
+.vc-vah-tools select {
+    min-width: 0;
+    flex: 1;
+    color: var(--text-default);
+    background: var(--background-base-low);
+    border: 1px solid var(--border-normal);
+    border-radius: 4px;
+    padding: 7px;
+}
+
+.vc-vah-tools span, .vc-vah-date, .vc-vah-meta, .vc-vah-note {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.vc-vah-list {
+    overflow-y: auto;
+    min-height: 100px;
+    flex: 1;
+}
+
+.vc-vah-row {
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--border-faint);
+}
+
+.vc-vah-row-main {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: baseline;
+    font-size: 13px;
+}
+
+.vc-vah-meta {
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+}
+
+.vc-vah-date {
+    display: block;
+    margin-top: 3px;
+}
+
+.vc-vah-onboarding, .vc-vah-empty {
+    padding: 24px 18px;
+    text-align: center;
+}
+
+.vc-vah-onboarding p, .vc-vah-note {
+    line-height: 1.5;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.vc-vah-primary {
+    width: 100%;
+    margin-top: 12px;
+    border: 0;
+    border-radius: 4px;
+    padding: 10px 16px;
+    color: white;
+    background: var(--brand-500, #5865f2);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.vc-vah-foot {
+    flex-wrap: wrap;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.vc-vah-foot button {
+    padding: 5px 0;
+    font-size: 12px;
+}
+
+.vc-vah-foot button:hover, .vc-vah-close:hover { color: var(--interactive-hover); }
+
+.vc-vah-note { margin: 0; padding: 0 16px 14px; font-size: 11px; }
+
+.vc-vah-preview { display: block; max-width: 100%; width: 240px; max-height: 135px; object-fit: contain; margin-top: 7px; border-radius: 4px; }
