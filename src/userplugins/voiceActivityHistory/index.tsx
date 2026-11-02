@@ -7,6 +7,7 @@
 import "./style.css";
 
 import * as DataStore from "@api/DataStore";
+import { Settings } from "@api/Settings";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Microphone } from "@components/Icons";
 import definePlugin from "@utils/types";
@@ -357,11 +358,19 @@ export default definePlugin({
     enabledByDefault: true,
     patches: [{
         find: '?"BACK_FORWARD_NAVIGATION":',
+        predicate: () => !Settings.plugins.VencordToolbox.enabled,
         replacement: {
-            match: /(trailing:.{0,180}?\{children:\[)/,
-            replace: "$1$self.renderHeaderButton(),"
+            // Follow the proven native toolbar anchor used by VencordToolbox.
+            match: /(trailing:.{0,50}?)\i.Fragment,(?=\{children:\[)/,
+            replace: "$1$self.TrailingWrapper,"
         }
     }],
+    TrailingWrapper({ children }: { children?: React.ReactNode; }) {
+        return <>
+            {children}
+            {this.renderHeaderButton()}
+        </>;
+    },
     renderHeaderButton() {
         return (
             <ErrorBoundary noop key="vc-voice-history">

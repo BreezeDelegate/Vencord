@@ -18,6 +18,7 @@
 
 import "./styles.css";
 
+import { isPluginEnabled, plugins } from "@api/PluginManager";
 import { definePluginSettings } from "@api/Settings";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Devs } from "@utils/constants";
@@ -102,6 +103,11 @@ export default definePlugin({
                 <ErrorBoundary key="vc-toolbox" noop>
                     <VencordPopoutButton />
                 </ErrorBoundary>
+                {isPluginEnabled("VoiceActivityHistory") && (
+                    <ErrorBoundary key="vc-voice-history-in-toolbox" noop>
+                        {(plugins.VoiceActivityHistory as any)?.renderHeaderButton?.()}
+                    </ErrorBoundary>
+                )}
             </>
         );
     },

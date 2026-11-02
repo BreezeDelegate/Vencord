@@ -23,9 +23,16 @@ import { extractAndLoadChunksLazy, findByPropsLazy } from "@webpack";
 import { GuildRoleStore } from "@webpack/common";
 
 import { PermissionsSortOrder, settings } from ".";
+import { safelyResolvePermissionSpecs } from "./safeSpecMap";
 
 export const loadGetGuildPermissionSpecMap = extractAndLoadChunksLazy([".PRIMARY,badgeTooltipDelay:"]);
 export const { getGuildPermissionSpecMap } = findByPropsLazy("getGuildPermissionSpecMap");
+// Discord may change the permission spec module or omit fields for some guilds.
+// Labels are optional metadata; a failed lookup must not hide the role bitmasks.
+export function safeGuildPermissionSpecMap(guild: Guild): Record<string, { title?: string; description?: string | ((...args: any[]) => string); }> {
+    return safelyResolvePermissionSpecs(() => getGuildPermissionSpecMap?.(guild));
+}
+
 
 export const cl = classNameFactory("vc-permviewer-");
 

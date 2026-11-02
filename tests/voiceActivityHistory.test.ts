@@ -67,14 +67,11 @@ test("retention keeps recent events, expires old previews and limits stored imag
     assert.equal(compactEvents(events, now, 3).length, 3);
 });
 
-test("both toolbar patch orders preserve voice and toolbox buttons", () => {
+test("native header injection matches the production Fragment layout", () => {
     const original = "trailing:a.Fragment,{children:[icon1,icon2]}";
-    const voicePattern = /(trailing:.{0,180}?\{children:\[)/;
-    const toolboxPattern = /(trailing:.{0,50}?)a\.Fragment,(?=\{children:\[)/;
-    const voice = (code: string) => code.replace(voicePattern, "$1VoiceActivityHistory.renderHeaderButton(),");
-    const toolbox = (code: string) => code.replace(toolboxPattern, "$1VencordToolbox.TrailingWrapper,");
-    for (const patched of [voice(toolbox(original)), toolbox(voice(original))]) {
-        assert.match(patched, /VoiceActivityHistory\.renderHeaderButton/);
-        assert.match(patched, /VencordToolbox\.TrailingWrapper/);
-    }
+    const nativePattern = /(trailing:.{0,50}?)a\.Fragment,(?=\{children:\[)/;
+    const patched = original.replace(nativePattern, "$1VoiceActivityHistory.TrailingWrapper,");
+    assert.notEqual(original, patched);
+    assert.match(patched, /VoiceActivityHistory\.TrailingWrapper/);
+    assert.match(patched, /children:\[icon1,icon2/);
 });

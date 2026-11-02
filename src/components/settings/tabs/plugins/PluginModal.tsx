@@ -83,10 +83,12 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
     const hasSettings = hasAnyVisibleSettings(plugin);
 
     // avoid layout shift by showing dummy users while loading users
-    const fallbackAuthors = useMemo(() => [makeDummyUser({ username: "Loading...", id: "-1465912127305809920" })], []);
+    const userPlugin = PluginMeta[plugin.name]?.userPlugin ?? false;
+    const fallbackAuthors = useMemo(() => userPlugin ? [] : [makeDummyUser({ username: "Loading...", id: "-1465912127305809920" })], [userPlugin]);
     const [authors, setAuthors] = useState<Partial<User>[]>([]);
 
     useEffect(() => {
+        if (userPlugin) return;
         (async () => {
             for (const user of plugin.authors.slice(0, 6)) {
                 try {
@@ -101,7 +103,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
                 }
             }
         })();
-    }, [plugin.authors]);
+    }, [plugin.authors, userPlugin]);
 
     function renderSettings() {
         const { settings } = plugin;
@@ -174,7 +176,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
             title={
                 <div className={cl("header")}>
                     <BaseText tag="h1" weight="semibold" size="lg">{plugin.name}</BaseText>
-                    {!pluginMeta.userPlugin && (
+                    {!pluginMeta?.userPlugin && (
                         <div className="vc-settings-modal-links">
                             <FavoriteButton
                                 isFavorite={pluginSettings.isFavorite ?? false}
@@ -205,7 +207,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
                 <section>
                     <Text variant="heading-lg/semibold" className={classes(Margins.top8, Margins.bottom8)}>Authors</Text>
                     <div style={{ width: "fit-content" }}>
-                        <ErrorBoundary noop>
+                        {userPlugin ? <Text>{plugin.authors.map(author => author.name).join(", ")}</Text> : <ErrorBoundary noop>
                             <UserSummaryItem
                                 users={authors.length ? authors : fallbackAuthors}
                                 guildId={undefined}
@@ -227,7 +229,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
                                     </Clickable>
                                 )}
                             />
-                        </ErrorBoundary>
+                        </ErrorBoundary>}
                     </div>
                 </section>
 
@@ -252,10 +254,12 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
 
 export function openPluginModal(plugin: Plugin, onRestartNeeded?: (pluginName: string, key: string) => void) {
     openModal(modalProps => (
-        <PluginModal
-            {...modalProps}
-            plugin={plugin}
-            onRestartNeeded={(key: string) => onRestartNeeded?.(plugin.name, key)}
-        />
+        <ErrorBoundary message="The plugin information panel could not be displayed.">
+            <PluginModal
+                {...modalProps}
+                plugin={plugin}
+                onRestartNeeded={(key: string) => onRestartNeeded?.(plugin.name, key)}
+            />
+        </ErrorBoundary>
     ));
 }
