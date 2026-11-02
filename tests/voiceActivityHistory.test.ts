@@ -5,6 +5,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { compactEvents, diffVoice, snapshot } from "../src/userplugins/voiceActivityHistory/model";
@@ -74,4 +75,11 @@ test("native header injection matches the production Fragment layout", () => {
     assert.notEqual(original, patched);
     assert.match(patched, /VoiceActivityHistory\.TrailingWrapper/);
     assert.match(patched, /children:\[icon1,icon2/);
+});
+
+test("toolbar React component never uses an unbound plugin this", () => {
+    const code = readFileSync("src/userplugins/voiceActivityHistory/index.tsx", "utf8");
+    const wrapper = code.split("TrailingWrapper({ children }:", 2)[1]?.split("renderHeaderButton()", 1)[0] ?? "";
+    assert.match(wrapper, /<VoiceHistoryButton \/>/);
+    assert.doesNotMatch(wrapper, /this\.renderHeaderButton/);
 });

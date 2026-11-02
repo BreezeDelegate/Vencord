@@ -368,7 +368,7 @@ export default definePlugin({
     TrailingWrapper({ children }: { children?: React.ReactNode; }) {
         return <>
             {children}
-            {this.renderHeaderButton()}
+            <ErrorBoundary noop key="vc-voice-history"><VoiceHistoryButton /></ErrorBoundary>
         </>;
     },
     renderHeaderButton() {
