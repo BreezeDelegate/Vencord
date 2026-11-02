@@ -80,3 +80,14 @@ The fork adds a Discord-style voice-history icon in the channel header. Its popo
 ### Validating a new Windows build
 
 Keep the currently installed Discord/PTB runtime unchanged during development. Build and test the fork in an isolated directory, then check the actual Discord UI and runtime patch compatibility before updating the release assets. Source compile and unit tests alone do not validate Discord UI injection.
+
+### QA record, 2026-11-02
+
+- Windows target: DESKTOP-0O5FKEG, isolated breeze-mcp account. The owner's installed Discord was left unchanged.
+- Verified source: 7603bc2f (feature branch feat/voice-activity-history-permissions).
+- Windows: pnpm test succeeded (standalone build, TypeScript check, ESLint, core stylelint and plugin inventory generation).
+- Windows: 7/7 targeted voice-history tests passed, including toolbar coexistence and local retention cases.
+- Windows: standalone build with updater disabled produced nonempty patcher.js, preload.js, renderer.js and renderer.css. Voice-history CSS was validated separately by stylelint.
+- Linux preflight: same 7 tests and type check passed, build succeeded.
+- Not live-verified: on-server Discord context menus, toolbar injection in a logged-in client, stream preview CORS availability and actual guild voice events. Do not promote to the installed runtime or public installer until these paths are tested in a real Discord session.
+- No GitHub-hosted runners were used. The fork's existing main-only GitHub Actions were not triggered by the feature-branch push.
