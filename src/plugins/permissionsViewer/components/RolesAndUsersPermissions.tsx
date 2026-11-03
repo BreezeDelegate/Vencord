@@ -19,6 +19,7 @@
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Flex } from "@components/Flex";
 import { CopyIdIcon, InfoIcon, OwnerCrownIcon } from "@components/Icons";
+import { LegacySafeModal } from "@components/LegacySafeModal";
 import { buildExtraRoleContextMenuItems } from "@plugins/betterRoleContext";
 import { cl, loadGetGuildPermissionSpecMap,safeGuildPermissionSpecMap } from "@plugins/permissionsViewer/utils";
 import { copyToClipboard } from "@utils/clipboard";
@@ -26,7 +27,7 @@ import { getIntlMessage, getUniqueUsername } from "@utils/discord";
 import { Guild, RenderModalProps, Role, RoleOrUserPermission, UnicodeEmoji, User } from "@vencord/discord-types";
 import { PermissionOverwriteType } from "@vencord/discord-types/enums";
 import { findByCodeLazy } from "@webpack";
-import { ContextMenuApi, FluxDispatcher, GuildMemberStore, GuildRoleStore, i18n, Menu, Modal, openModalLazy, PermissionsBits, ScrollerThin, Text, Tooltip, useEffect, useMemo, useRef, UserStore, useState, useStateFromStores } from "@webpack/common";
+import { ContextMenuApi, FluxDispatcher, GuildMemberStore, GuildRoleStore, i18n, Menu, openModalLazy, PermissionsBits, Text, Tooltip, useEffect, useMemo, useRef, UserStore, useState, useStateFromStores } from "@webpack/common";
 
 import { settings } from "..";
 import { PermissionAllowedIcon, PermissionDeniedIcon } from "./icons";
@@ -75,7 +76,7 @@ function RolesAndUsersPermissionsComponent({ permissions, guild, modalProps, hea
     const roles = GuildRoleStore.getRolesSnapshot(guild.id) ?? {};
 
     return (
-        <Modal
+        <LegacySafeModal
             {...modalProps}
             size="xl"
             title={`${header} Permissions`}
@@ -88,7 +89,7 @@ function RolesAndUsersPermissionsComponent({ permissions, guild, modalProps, hea
 
             {selectedItem && (
                 <div className={cl("modal-container")}>
-                    <ScrollerThin className={cl("modal-list")} orientation="auto">
+                    <div className={cl("modal-list")}>
                         {sortedPermissions.map((permission, index) => {
                             const user: User | undefined = UserStore.getUser(permission.id ?? "");
                             const role: Role | undefined = roles[permission.id ?? ""];
@@ -158,9 +159,9 @@ function RolesAndUsersPermissionsComponent({ permissions, guild, modalProps, hea
                                 </div>
                             );
                         })}
-                    </ScrollerThin>
+                    </div>
                     <div className={cl("modal-divider")} />
-                    <ScrollerThin className={cl("modal-perms")} orientation="auto">
+                    <div className={cl("modal-perms")}>
                         {Object.values(PermissionsBits).map(bit => {
                             const overrideType = (() => {
                                 const { permissions, overwriteAllow, overwriteDeny } = selectedItem;
@@ -201,10 +202,10 @@ function RolesAndUsersPermissionsComponent({ permissions, guild, modalProps, hea
                                 </div>
                             );
                         })}
-                    </ScrollerThin>
+                    </div>
                 </div>
             )}
-        </Modal>
+        </LegacySafeModal>
     );
 }
 

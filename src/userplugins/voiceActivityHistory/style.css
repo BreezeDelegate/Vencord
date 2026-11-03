@@ -133,3 +133,29 @@
     margin-top: 7px;
     border-radius: 4px;
 }
+
+.vc-vah-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--interactive-normal);
+    cursor: pointer;
+}
+
+.vc-vah-button:hover,
+.vc-vah-button[aria-expanded="true"] {
+    background: var(--background-mod-subtle);
+    color: var(--interactive-hover);
+}
+
+.vc-vah-button:focus-visible {
+    outline: 2px solid var(--text-link);
+    outline-offset: 2px;
+}

@@ -23,6 +23,7 @@ import { hasAnyVisibleSettings, isSettingHidden } from "@api/PluginManager";
 import { useSettings } from "@api/Settings";
 import { BaseText } from "@components/BaseText";
 import ErrorBoundary from "@components/ErrorBoundary";
+import { LegacySafeModal } from "@components/LegacySafeModal";
 import { debounce } from "@shared/debounce";
 import { gitRemote } from "@shared/vencordUserAgent";
 import { classNameFactory } from "@utils/css";
@@ -32,7 +33,7 @@ import { classes } from "@utils/misc";
 import { OptionType, Plugin, PluginTag } from "@utils/types";
 import { RenderModalProps, User } from "@vencord/discord-types";
 import { findCssClassesLazy } from "@webpack";
-import { Clickable, FluxDispatcher, Forms, Modal, openModal, React, Text, Tooltip, useEffect, useMemo, UserStore, UserSummaryItem, UserUtils, useState } from "@webpack/common";
+import { Clickable, FluxDispatcher, Forms, openModal, React, Text, Tooltip, useEffect, useMemo, UserStore, UserSummaryItem, UserUtils, useState } from "@webpack/common";
 import { Constructor } from "type-fest";
 
 import { PluginMeta } from "~plugins";
@@ -169,7 +170,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
     const pluginMeta = PluginMeta[plugin.name];
 
     return (
-        <Modal
+        <LegacySafeModal
             transitionState={transitionState}
             onClose={onClose}
             size="lg"
@@ -248,7 +249,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
                     {renderSettings()}
                 </section>
             </div>
-        </Modal>
+        </LegacySafeModal>
     );
 }
 

@@ -11,12 +11,10 @@ import { Settings } from "@api/Settings";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Microphone } from "@components/Icons";
 import definePlugin from "@utils/types";
-import { findComponentByCodeLazy } from "@webpack";
-import { ApplicationStreamingStore, ApplicationStreamPreviewStore, ChannelStore, Popout, PresenceStore, SelectedGuildStore, useEffect, useRef, UserStore, useState, useStateFromStores, VoiceStateStore } from "@webpack/common";
+import { ApplicationStreamingStore, ApplicationStreamPreviewStore, ChannelStore, Popout, PresenceStore, SelectedChannelStore, SelectedGuildStore, useEffect, useRef, UserStore, useState, useStateFromStores, VoiceStateStore } from "@webpack/common";
 
 import { compactEvents, diffVoice, snapshot, VoiceEvent, VoiceEventKind, VoiceSnapshot, VoiceUpdate } from "./model";
 
-const HeaderBarIcon = findComponentByCodeLazy(".HEADER_BAR_BADGE_BOTTOM,", 'position:"bottom"');
 const KEY = "BreezeVoiceActivityHistory.v1";
 const CAPTURE_INTERVAL = 2 * 60 * 1000;
 const capturedAt = new Map<string, number>();
@@ -321,7 +319,10 @@ function VoiceHistoryPanel({ guildId, close }: { guildId: string; close: () => v
 }
 
 function VoiceHistoryButton() {
-    const guildId = useStateFromStores([SelectedGuildStore], () => SelectedGuildStore.getGuildId());
+    const guildId = useStateFromStores(
+        [SelectedGuildStore, SelectedChannelStore],
+        () => SelectedGuildStore.getGuildId() ?? ChannelStore.getChannel(SelectedChannelStore.getChannelId())?.guild_id
+    );
     const buttonRef = useRef(null);
     const [open, setOpen] = useState(false);
     if (!guildId) return null;
@@ -337,14 +338,17 @@ function VoiceHistoryButton() {
             renderPopout={() => <VoiceHistoryPanel guildId={guildId} close={() => setOpen(false)} />}
         >
             {(_, { isShown }) => (
-                <HeaderBarIcon
+                <button
+                    type="button"
                     ref={buttonRef}
                     className="vc-vah-button"
                     onClick={() => setOpen(value => !value)}
-                    tooltip={isShown ? null : "Historique vocal"}
-                    icon={() => <Microphone width={20} height={20} />}
-                    selected={isShown}
-                />
+                    title="Historique vocal"
+                    aria-label="Historique vocal"
+                    aria-expanded={isShown}
+                >
+                    <Microphone width={20} height={20} />
+                </button>
             )}
         </Popout>
     );
