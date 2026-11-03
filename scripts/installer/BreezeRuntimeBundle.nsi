@@ -28,6 +28,19 @@ Section "Install Breeze Vencord"
   IfFileExists "$APPDATA\Vencord\dist\patcher.js" +3 0
     MessageBox MB_ICONSTOP "Base installation was not found. Complete Install/Reinstall in the Vencord installer first."
     Abort
+  DetailPrint "Verifying that Discord Stable was actually patched"
+  FindFirst $R1 $R2 "$LOCALAPPDATA\Discord\app-*"
+  breeze_scan_stable:
+    StrCmp $R2 "" breeze_no_stable
+    IfFileExists "$LOCALAPPDATA\Discord\$R2\resources\_app.asar" breeze_patched 0
+    FindNext $R1 $R2
+    Goto breeze_scan_stable
+  breeze_no_stable:
+    FindClose $R1
+    MessageBox MB_ICONSTOP "Vencord injection is missing from Discord Stable. In the base installer choose Discord Stable and click Install/Reinstall."
+    Abort
+  breeze_patched:
+    FindClose $R1
   DetailPrint "Saving a rollback copy of existing Vencord runtime"
   CreateDirectory "$APPDATA\Vencord\BreezeBackup\setup-${BUILD_SHA}"
   CopyFiles /SILENT "$APPDATA\Vencord\dist\patcher.js" "$APPDATA\Vencord\BreezeBackup\setup-${BUILD_SHA}"
