@@ -83,3 +83,13 @@ test("toolbar React component never uses an unbound plugin this", () => {
     assert.match(wrapper, /<VoiceHistoryButton \/>/);
     assert.doesNotMatch(wrapper, /this\.renderHeaderButton/);
 });
+
+test("voice history toolbar click opens a nonvirtualized modal", () => {
+    const code = readFileSync("src/userplugins/voiceActivityHistory/index.tsx", "utf8");
+    const buttonCode = code.split("function VoiceHistoryButton()", 2)[1]?.split("export default definePlugin", 1)[0] ?? "";
+    assert.match(buttonCode, /onClick=\{openHistory\}/);
+    assert.match(buttonCode, /openModal\(modalProps =>/);
+    assert.match(buttonCode, /<LegacySafeModal/);
+    assert.match(buttonCode, /<VoiceHistoryPanel/);
+    assert.doesNotMatch(buttonCode, /<Popout/);
+});

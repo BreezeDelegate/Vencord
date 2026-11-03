@@ -10,8 +10,9 @@ import * as DataStore from "@api/DataStore";
 import { Settings } from "@api/Settings";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Microphone } from "@components/Icons";
+import { LegacySafeModal } from "@components/LegacySafeModal";
 import definePlugin from "@utils/types";
-import { ApplicationStreamingStore, ApplicationStreamPreviewStore, ChannelStore, Popout, PresenceStore, SelectedChannelStore, SelectedGuildStore, useEffect, useRef, UserStore, useState, useStateFromStores, VoiceStateStore } from "@webpack/common";
+import { ApplicationStreamingStore, ApplicationStreamPreviewStore, ChannelStore, openModal, PresenceStore, SelectedChannelStore, SelectedGuildStore, useEffect, UserStore, useState, useStateFromStores, VoiceStateStore } from "@webpack/common";
 
 import { compactEvents, diffVoice, snapshot, VoiceEvent, VoiceEventKind, VoiceSnapshot, VoiceUpdate } from "./model";
 
@@ -242,7 +243,7 @@ function checkGames() {
     }
 }
 
-function VoiceHistoryPanel({ guildId, close }: { guildId: string; close: () => void; }) {
+function VoiceHistoryPanel({ guildId, close, showHeader = true }: { guildId: string; close: () => void; showHeader?: boolean; }) {
     const [filter, setFilter] = useState("all");
     useStateFromStores([SelectedGuildStore], () => SelectedGuildStore.getGuildId());
     const [confirmClear, setConfirmClear] = useState(false);
@@ -263,10 +264,10 @@ function VoiceHistoryPanel({ guildId, close }: { guildId: string; close: () => v
 
     return (
         <div className="vc-vah-panel">
-            <div className="vc-vah-head">
+            {showHeader && <div className="vc-vah-head">
                 <strong>Historique vocal</strong>
                 <button type="button" onClick={close} className="vc-vah-close">Fermer</button>
-            </div>
+            </div>}
             {!ready ? <div className="vc-vah-empty">Chargement...</div>
                 : !enabled ? (
                     <div className="vc-vah-onboarding">
@@ -323,34 +324,25 @@ function VoiceHistoryButton() {
         [SelectedGuildStore, SelectedChannelStore],
         () => SelectedGuildStore.getGuildId() ?? ChannelStore.getChannel(SelectedChannelStore.getChannelId())?.guild_id
     );
-    const buttonRef = useRef(null);
-    const [open, setOpen] = useState(false);
     if (!guildId) return null;
 
+    const openHistory = () => openModal(modalProps => (
+        <LegacySafeModal {...modalProps} title="Historique vocal" size="lg">
+            <VoiceHistoryPanel guildId={guildId} close={modalProps.onClose} showHeader={false} />
+        </LegacySafeModal>
+    ));
+
     return (
-        <Popout
-            position="bottom"
-            align="right"
-            animation={Popout.Animation.NONE}
-            shouldShow={open}
-            onRequestClose={() => setOpen(false)}
-            targetElementRef={buttonRef}
-            renderPopout={() => <VoiceHistoryPanel guildId={guildId} close={() => setOpen(false)} />}
+        <button
+            type="button"
+            className="vc-vah-button"
+            onClick={openHistory}
+            title="Historique vocal"
+            aria-label="Historique vocal"
+            aria-haspopup="dialog"
         >
-            {(_, { isShown }) => (
-                <button
-                    type="button"
-                    ref={buttonRef}
-                    className="vc-vah-button"
-                    onClick={() => setOpen(value => !value)}
-                    title="Historique vocal"
-                    aria-label="Historique vocal"
-                    aria-expanded={isShown}
-                >
-                    <Microphone width={20} height={20} />
-                </button>
-            )}
-        </Popout>
+            <Microphone width={20} height={20} />
+        </button>
     );
 }
 
