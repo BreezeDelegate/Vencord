@@ -8,25 +8,28 @@ import "./ContributorModal.css";
 
 import { useSettings } from "@api/Settings";
 import { Link } from "@components/Link";
+import { Paragraph } from "@components/Paragraph";
+import { Span } from "@components/Span";
 import { DevsById } from "@utils/constants";
 import { classNameFactory } from "@utils/css";
 import { fetchUserProfile } from "@utils/discord";
 import { classes, pluralise } from "@utils/misc";
-import { RenderModalProps, User } from "@vencord/discord-types";
-import { Forms, Modal, openModal, showToast, useEffect, useMemo, UserProfileStore, useStateFromStores } from "@webpack/common";
+import { RenderModalProps } from "@vencord/discord-types";
+import { Modal, openModal, showToast, useEffect, useMemo, UserProfileStore, useStateFromStores } from "@webpack/common";
 
 import Plugins from "~plugins";
 
+import { ContributorUser, getContributorAvatarUrl } from "./author";
 import { PluginCard } from "./PluginCard";
 import { GithubButton, WebsiteButton } from "./PluginModalButtons";
 
 const cl = classNameFactory("vc-author-modal-");
 
-export function openContributorModal(user: User) {
+export function openContributorModal(user: ContributorUser) {
     openModal(modalProps => <ContributorModal user={user} modalProps={modalProps} />);
 }
 
-function ContributorModal({ user, modalProps }: { user: User; modalProps: RenderModalProps; }) {
+function ContributorModal({ user, modalProps }: { user: ContributorUser; modalProps: RenderModalProps; }) {
     useSettings();
 
     const profile = useStateFromStores([UserProfileStore], () => UserProfileStore.getUserProfile(user.id));
@@ -59,10 +62,10 @@ function ContributorModal({ user, modalProps }: { user: User; modalProps: Render
                 <div className="vc-plugin-modal-header">
                     <img
                         className={cl("avatar")}
-                        src={user.getAvatarURL(void 0, 512, true)}
+                        src={getContributorAvatarUrl(user, 512)}
                         alt=""
                     />
-                    <Forms.FormTitle tag="h2" className={cl("name")}>{user.username}</Forms.FormTitle>
+                    <Span size="lg" weight="semibold" className={cl("name")}>{user.username}</Span>
 
                     <div className={classes("vc-settings-modal-links", cl("links"))}>
                         {website && (
@@ -83,14 +86,14 @@ function ContributorModal({ user, modalProps }: { user: User; modalProps: Render
             subtitle={
                 plugins.length
                     ? (
-                        <Forms.FormText>
+                        <Paragraph>
                             This person has {ContributedHyperLink} to {pluralise(plugins.length, "plugin")}!
-                        </Forms.FormText>
+                        </Paragraph>
                     )
                     : (
-                        <Forms.FormText>
+                        <Paragraph>
                             This person has not made any plugins. They likely {ContributedHyperLink} to Vencord in other ways!
-                        </Forms.FormText>
+                        </Paragraph>
                     )
             }
         >
@@ -101,7 +104,7 @@ function ContributorModal({ user, modalProps }: { user: User; modalProps: Render
                             key={p.name}
                             plugin={p}
                             disabled={p.required ?? false}
-                            onRestartNeeded={() => showToast("Restart to apply changes!")}
+                            onRestartNeeded={() => showToast({ text: "Restart to apply changes!" })}
                         />
                     )}
                 </div>

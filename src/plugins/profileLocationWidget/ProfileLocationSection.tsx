@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "@webpack/common";
-import L, { CircleMarker, Map as LeafletMap } from "leaflet";
+import type { CircleMarker, Map as LeafletMap } from "leaflet";
 
 import { searchLocations } from "./geocode";
 import { formatLocationClock } from "./model";
@@ -47,30 +47,42 @@ function LocationMap({ location, compact }: { location: SavedLocation; compact: 
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<LeafletMap | null>(null);
     const markerRef = useRef<CircleMarker | null>(null);
+    const locationRef = useRef(location);
+    locationRef.current = location;
 
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
-        const map = L.map(container, {
-            attributionControl: false,
-            zoomControl: true,
-            scrollWheelZoom: false,
-            dragging: true,
-            doubleClickZoom: true,
-            boxZoom: false,
-            keyboard: false
+        let cancelled = false;
+        let frame: number | undefined;
+
+        void import("leaflet").then(({ default: L }) => {
+            if (cancelled) return;
+
+            const currentLocation = locationRef.current;
+            const map = L.map(container, {
+                attributionControl: false,
+                zoomControl: true,
+                scrollWheelZoom: false,
+                dragging: true,
+                doubleClickZoom: true,
+                boxZoom: false,
+                keyboard: false
+            });
+            mapRef.current = map;
+            L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+            L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
+            markerRef.current = L.circleMarker([currentLocation.lat, currentLocation.lng], { radius: compact ? 5 : 6, weight: 2, opacity: 1, fillOpacity: 0.9 }).addTo(map);
+            map.setView([currentLocation.lat, currentLocation.lng], currentLocation.zoom, { animate: false });
+            frame = window.requestAnimationFrame(() => map.invalidateSize(false));
         });
-        mapRef.current = map;
-        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
-        L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
-        markerRef.current = L.circleMarker([location.lat, location.lng], { radius: compact ? 5 : 6, weight: 2, opacity: 1, fillOpacity: 0.9 }).addTo(map);
-        map.setView([location.lat, location.lng], location.zoom, { animate: false });
-        const frame = window.requestAnimationFrame(() => map.invalidateSize(false));
+
         return () => {
-            window.cancelAnimationFrame(frame);
+            cancelled = true;
+            if (frame != null) window.cancelAnimationFrame(frame);
             markerRef.current = null;
+            mapRef.current?.remove();
             mapRef.current = null;
-            map.remove();
         };
     }, [compact]);
 
@@ -90,34 +102,29 @@ function SearchEditor({ userId, onClose }: { userId: string; onClose(): void; })
     const [results, setResults] = useState<GeocodeCandidate[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [hasSearched, setHasSearched] = useState(false);
+    const searchId = useRef(0);
 
-    useEffect(() => {
+    async function submitSearch(event: React.FormEvent) {
+        event.preventDefault();
         const trimmed = query.trim();
-        if (trimmed.length < 2) {
+        if (trimmed.length < 2 || loading) return;
+
+        const currentSearchId = ++searchId.current;
+        setLoading(true);
+        setHasSearched(true);
+        setError(null);
+        try {
+            const nextResults = await searchLocations(trimmed);
+            if (currentSearchId === searchId.current) setResults(nextResults);
+        } catch (searchError) {
+            if (currentSearchId !== searchId.current) return;
             setResults([]);
-            setError(null);
-            setLoading(false);
-            return;
+            setError(searchError instanceof Error ? searchError.message : "Location search failed");
+        } finally {
+            if (currentSearchId === searchId.current) setLoading(false);
         }
-        const controller = new AbortController();
-        const timer = window.setTimeout(async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                setResults(await searchLocations(trimmed, controller.signal));
-            } catch (searchError) {
-                if (controller.signal.aborted) return;
-                setResults([]);
-                setError(searchError instanceof Error ? searchError.message : "Location search failed");
-            } finally {
-                if (!controller.signal.aborted) setLoading(false);
-            }
-        }, 650);
-        return () => {
-            window.clearTimeout(timer);
-            controller.abort();
-        };
-    }, [query]);
+    }
 
     async function choose(candidate: GeocodeCandidate) {
         await saveLocation(userId, candidate);
@@ -125,15 +132,21 @@ function SearchEditor({ userId, onClose }: { userId: string; onClose(): void; })
     }
 
     return <div className="vc-plw-editor">
-        <div className="vc-plw-search-row">
+        <form className="vc-plw-search-row" onSubmit={event => void submitSearch(event)}>
             <LocationPinIcon />
-            <input autoFocus className="vc-plw-search" placeholder="Search a city or place" value={query} onChange={event => setQuery(event.currentTarget.value)} />
+            <input autoFocus className="vc-plw-search" placeholder="Search a city or place" value={query} onChange={event => {
+                setQuery(event.currentTarget.value);
+                setHasSearched(false);
+                setError(null);
+            }} />
+            <button type="submit" className="vc-plw-search-button" disabled={loading || query.trim().length < 2}>Search</button>
             <button type="button" className="vc-plw-icon-button" aria-label="Close location editor" onClick={onClose}>×</button>
-        </div>
+        </form>
         {loading && <div className="vc-plw-search-state">Searching…</div>}
         {error && <div className="vc-plw-search-state vc-plw-error">{error}</div>}
-        {!loading && !error && query.trim().length >= 2 && results.length === 0 && <div className="vc-plw-search-state">No place found</div>}
+        {!loading && !error && hasSearched && results.length === 0 && <div className="vc-plw-search-state">No place found</div>}
         {results.length > 0 && <div className="vc-plw-results">{results.map(result => <button type="button" className="vc-plw-result" key={`${result.lat}:${result.lng}:${result.label}`} onClick={() => void choose(result)}><LocationPinIcon size={14} /><span>{result.label}</span></button>)}</div>}
+        <button type="button" className="vc-plw-attribution" onClick={() => VencordNative.native.openExternal("https://www.openstreetmap.org/copyright")}>Search data © OpenStreetMap contributors</button>
     </div>;
 }
 

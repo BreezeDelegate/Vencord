@@ -26,22 +26,22 @@ export default definePlugin({
         {
             find: ".SIDEBAR,disableToolbar:",
             replacement: {
-                match: /(#{intl::USER_PROFILE_MEMBER_SINCE}\),.{0,100}userId:(\i\.id)\}\)\}\))(?=.{0,100}unownedWishlistItems:\i,wishlistId:\i)/,
+                match: /(\(0,\i\.jsx\)\(\i\.\i,\{heading:\i\.bot\?.{0,200}?children:\(0,\i\.jsx\)\(\i\.\i,\{userId:(\i)\.id\}\)\}\))(?=.{0,100}unownedWishlistItems:\i,wishlistId:\i)/,
                 replace: "$self.renderProfileLocation({userId:$2,isSideBar:true}),$1"
             }
         },
         {
             find: ",applicationRoleConnection:",
             replacement: {
-                match: /(#{intl::USER_PROFILE_MEMBER_SINCE}\),.{0,100}userId:(\i\.id),.{0,100}}\)}\)),/,
-                replace: "$self.renderProfileLocation({userId:$2,isSideBar:false}),$1,"
+                match: /(\(0,\i\.jsx\)\(\i(?:\.\i)?,\{heading:\i\.intl\.string\(\i\.t\.a6XYD9\),children:\(0,\i\.jsx\)\(\i(?:\.\i)?,\{userId:(\i)\.id.{0,100}?\}\)\}\))/,
+                replace: "$self.renderProfileLocation({userId:$2,isSideBar:false}),$1"
             }
         },
         {
             find: ".MODAL_V2,onClose:",
             replacement: {
-                match: /(#{intl::USER_PROFILE_MEMBER_SINCE}\),.{0,100}userId:(\i\.id),.{0,100}}\)}\)),/,
-                replace: "$self.renderProfileLocation({userId:$2,isSideBar:false}),$1,"
+                match: /(\(0,\i\.jsx\)\(\i(?:\.\i)?,\{heading:\i\.intl\.string\(\i\.t\.a6XYD9\),children:\(0,\i\.jsx\)\(\i(?:\.\i)?,\{userId:(\i)\.id.{0,100}?\}\)\}\))/,
+                replace: "$self.renderProfileLocation({userId:$2,isSideBar:false}),$1"
             }
         }
     ],

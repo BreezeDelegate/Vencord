@@ -21,8 +21,9 @@ import "./PluginModal.css";
 import { generateId } from "@api/Commands";
 import { hasAnyVisibleSettings, isSettingHidden } from "@api/PluginManager";
 import { useSettings } from "@api/Settings";
-import { BaseText } from "@components/BaseText";
 import ErrorBoundary from "@components/ErrorBoundary";
+import { Heading } from "@components/Heading";
+import { Paragraph } from "@components/Paragraph";
 import { debounce } from "@shared/debounce";
 import { gitRemote } from "@shared/vencordUserAgent";
 import { classNameFactory } from "@utils/css";
@@ -32,11 +33,12 @@ import { classes } from "@utils/misc";
 import { OptionType, Plugin, PluginTag } from "@utils/types";
 import { RenderModalProps, User } from "@vencord/discord-types";
 import { findCssClassesLazy } from "@webpack";
-import { Clickable, FluxDispatcher, Forms, Modal, openModal, React, Text, Tooltip, useEffect, useMemo, UserStore, UserSummaryItem, UserUtils, useState } from "@webpack/common";
+import { Clickable, FluxDispatcher, Modal, openModal, React, Tooltip, useEffect, useMemo, UserStore, UserSummaryItem, UserUtils, useState } from "@webpack/common";
 import { Constructor } from "type-fest";
 
 import { PluginMeta } from "~plugins";
 
+import { ContributorUser, getContributorAvatarUrl } from "./author";
 import { OptionComponentMap } from "./components";
 import { openContributorModal } from "./ContributorModal";
 import { FavoriteButton, GithubButton, WebsiteButton } from "./PluginModalButtons";
@@ -51,7 +53,7 @@ interface PluginModalProps extends RenderModalProps {
     onRestartNeeded(key: string): void;
 }
 
-function makeDummyUser(user: { username: string; id?: string; avatar?: string; }) {
+function makeDummyUser(user: { username: string; id?: string; avatar?: string; avatarUrl?: string; }) {
     const newUser = new UserRecord({
         username: user.username,
         id: user.id ?? generateId(),
@@ -65,7 +67,9 @@ function makeDummyUser(user: { username: string; id?: string; avatar?: string; }
         user: newUser,
     });
 
-    return newUser;
+    const contributorUser = newUser as ContributorUser;
+    contributorUser.vcAvatarUrl = user.avatarUrl;
+    return contributorUser;
 }
 
 function PluginTags({ tags }: { tags: PluginTag[]; }) {
@@ -84,7 +88,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
 
     // avoid layout shift by showing dummy users while loading users
     const fallbackAuthors = useMemo(() => [makeDummyUser({ username: "Loading...", id: "-1465912127305809920" })], []);
-    const [authors, setAuthors] = useState<Partial<User>[]>([]);
+    const [authors, setAuthors] = useState<ContributorUser[]>([]);
 
     useEffect(() => {
         (async () => {
@@ -92,8 +96,8 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
                 try {
                     const author = user.id
                         ? await UserUtils.getUser(String(user.id))
-                            .catch(() => makeDummyUser({ username: user.name }))
-                        : makeDummyUser({ username: user.name });
+                            .catch(() => makeDummyUser({ username: user.name, avatarUrl: user.avatarUrl })) as ContributorUser
+                        : makeDummyUser({ username: user.name, avatarUrl: user.avatarUrl });
 
                     setAuthors(a => [...a, author]);
                 } catch (e) {
@@ -106,7 +110,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
     function renderSettings() {
         const { settings } = plugin;
         if (!hasSettings || !settings)
-            return <Forms.FormText>There are no settings for this plugin.</Forms.FormText>;
+            return <Paragraph>There are no settings for this plugin.</Paragraph>;
 
         const options = Object.entries(settings.def).map(([key, setting]) => {
             if (setting.type === OptionType.CUSTOM) return null;
@@ -173,7 +177,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
             size="lg"
             title={
                 <div className={cl("header")}>
-                    <BaseText tag="h1" weight="semibold" size="lg">{plugin.name}</BaseText>
+                    <Heading tag="h3">{plugin.name}</Heading>
                     {!pluginMeta.userPlugin && (
                         <div className="vc-settings-modal-links">
                             <FavoriteButton
@@ -195,7 +199,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
             subtitle={
                 <div className={cl("info")}>
                     <div>
-                        <Forms.FormText>{plugin.description}</Forms.FormText>
+                        <Paragraph>{plugin.description}</Paragraph>
                         {!!plugin.tags?.length && <PluginTags tags={plugin.tags} />}
                     </div>
                 </div>
@@ -203,7 +207,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
         >
             <div className={"vc-settings-modal-content"}>
                 <section>
-                    <Text variant="heading-lg/semibold" className={classes(Margins.top8, Margins.bottom8)}>Authors</Text>
+                    <Heading tag="h3" className={classes(Margins.top8, Margins.bottom8)}>Authors</Heading>
                     <div style={{ width: "fit-content" }}>
                         <ErrorBoundary noop>
                             <UserSummaryItem
@@ -213,14 +217,14 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
                                 max={6}
                                 showDefaultAvatarsForNullUsers
                                 renderMoreUsers={renderMoreUsers}
-                                renderUser={(user: User) => (
+                                renderUser={(user: ContributorUser) => (
                                     <Clickable
                                         className={AvatarStyles.clickableAvatar}
                                         onClick={() => openContributorModal(user)}
                                     >
                                         <img
                                             className={AvatarStyles.avatar}
-                                            src={user.getAvatarURL(void 0, 80, true)}
+                                            src={getContributorAvatarUrl(user, 80)}
                                             alt={user.username}
                                             title={user.username}
                                         />
@@ -242,7 +246,7 @@ export default function PluginModal({ plugin, onRestartNeeded, onClose, transiti
                 )}
 
                 <section>
-                    <Text variant="heading-lg/semibold" className={classes(Margins.top16, Margins.bottom8)}>Settings</Text>
+                    <Heading tag="h3" className={classes(Margins.top16, Margins.bottom8)}>Settings</Heading>
                     {renderSettings()}
                 </section>
             </div>

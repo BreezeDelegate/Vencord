@@ -4,13 +4,15 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import type { PluginNative } from "@utils/types";
+
 import { normalizeNominatimResult } from "./model";
 import type { GeocodeCandidate, NominatimResult } from "./types";
 
-const SEARCH_ENDPOINT = "https://nominatim.openstreetmap.org/search";
 const cache = new Map<string, GeocodeCandidate[]>();
+const Native = VencordNative.pluginHelpers.ProfileLocationWidget as PluginNative<typeof import("./native")> | undefined;
 
-export async function searchLocations(query: string, signal?: AbortSignal) {
+export async function searchLocations(query: string) {
     const normalizedQuery = query.trim();
     if (normalizedQuery.length < 2) return [];
 
@@ -18,23 +20,8 @@ export async function searchLocations(query: string, signal?: AbortSignal) {
     const cached = cache.get(cacheKey);
     if (cached) return cached;
 
-    const url = new URL(SEARCH_ENDPOINT);
-    url.searchParams.set("q", normalizedQuery);
-    url.searchParams.set("format", "jsonv2");
-    url.searchParams.set("addressdetails", "1");
-    url.searchParams.set("limit", "6");
-
-    const response = await fetch(url, {
-        signal,
-        headers: {
-            Accept: "application/json",
-            "Accept-Language": navigator.language || "en"
-        }
-    });
-    if (!response.ok) throw new Error(`Location search failed (${response.status})`);
-
-    const payload: unknown = await response.json();
-    if (!Array.isArray(payload)) return [];
+    if (!Native?.searchLocations) throw new Error("Location search requires the Discord desktop app");
+    const payload = await Native.searchLocations(normalizedQuery, navigator.language || "en");
 
     const candidates = payload
         .map(item => normalizeNominatimResult(item as NominatimResult))

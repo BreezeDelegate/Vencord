@@ -275,6 +275,24 @@
 
 .vc-plw-search::placeholder { color: var(--text-muted); }
 
+.vc-plw-search-button {
+    padding: 5px 9px;
+    border: 0;
+    border-radius: 7px;
+    color: var(--white-500);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--brand-500);
+}
+
+.vc-plw-search-button:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.vc-plw-search-button:hover:not(:disabled) { background: var(--brand-560); }
+
 .vc-plw-icon-button {
     width: 25px;
     height: 25px;
@@ -326,6 +344,20 @@
 }
 
 .vc-plw-error { color: var(--text-feedback-critical); }
+
+.vc-plw-attribution {
+    width: 100%;
+    padding: 6px 11px;
+    border: 0;
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 9px;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+}
+
+.vc-plw-attribution:hover { color: var(--text-link); }
 
 .vc-plw-remove {
     width: 100%;

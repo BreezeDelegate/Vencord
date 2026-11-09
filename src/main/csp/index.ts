@@ -28,6 +28,7 @@ export const CspPolicies: PolicyMap = {
     "*.github.io": ImageAndCssSrc, // GitHub pages, used by most themes
     "github.com": ImageAndCssSrc, // GitHub content (stuff uploaded to markdown forms), used by most themes
     "raw.githubusercontent.com": ImageAndCssSrc, // GitHub raw, used by some themes
+    "avatars.githubusercontent.com": ImageSrc, // GitHub contributor avatars
     "*.gitlab.io": ImageAndCssSrc, // GitLab pages, used by some themes
     "gitlab.com": ImageAndCssSrc, // GitLab raw, used by some themes
     "*.codeberg.page": ImageAndCssSrc, // Codeberg pages, used by some themes
@@ -68,10 +69,12 @@ export const CspPolicies: PolicyMap = {
     "dearrow-thumb.ajay.app": ImageSrc, // Dearrow Thumbnail CDN
     "usrbg.is-hardly.online": ImageSrc, // USRBG API
     "icons.duckduckgo.com": ImageSrc, // DuckDuckGo Favicon API (Reverse Image Search)
+    "tile.openstreetmap.org": ImageSrc, // ProfileLocationWidget map tiles
 
-    // Tenor, used by TenorSearch plugin and some themes
+    // Tenor & Giphy, used by GifProviderSwitcher plugin and some themes
     "*.tenor.com": ImageAndMediaSrc,
     "*.tenor.co": ImageAndMediaSrc,
+    "*.giphy.com": ImageAndMediaSrc,
 };
 
 const findHeader = (headers: PolicyMap, headerName: Lowercase<string>) => {
@@ -139,8 +142,12 @@ const patchCsp = (headers: PolicyMap) => {
 };
 
 export function initCsp() {
-    session.defaultSession.webRequest.onHeadersReceived(({ responseHeaders, resourceType }, cb) => {
+    session.defaultSession.webRequest.onHeadersReceived(({ responseHeaders, resourceType, url }, cb) => {
         if (responseHeaders) {
+            if (url === DESKTOP_MONACO_EDITOR_URL) {
+                const header = findHeader(responseHeaders, "content-type") ?? "content-type";
+                responseHeaders[header] = ["text/html"];
+            }
             if (resourceType === "mainFrame")
                 patchCsp(responseHeaders);
 

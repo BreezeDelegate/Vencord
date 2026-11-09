@@ -113,6 +113,7 @@ export interface Patch {
 export interface PluginAuthor {
     name: string;
     id: BigInt;
+    avatarUrl?: string;
 }
 
 export interface Plugin extends PluginDef {
